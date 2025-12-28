@@ -1,0 +1,101 @@
+# ================================
+# Node.js
+# ================================
+node_modules/
+npm-debug.log
+yarn-debug.log
+yarn-error.log
+pnpm-debug.log
+package-lock.json
+.pnpm-debug.log
+dist/
+build/
+
+# ================================
+# Environment & Secrets
+# ================================
+.env
+.env.local
+.env.production
+.env.development
+.env.test
+
+# ================================
+# Logs
+# ================================
+logs
+*.log
+*.log.*
+log/
+tmp/
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# ================================
+# OS specific files
+# ================================
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ================================
+# IDEs / Editors
+# ================================
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ================================
+# Docker
+# ================================
+docker-compose.override.yml
+docker-data/
+docker-debug/
+**/Dockerfile.local
+**/Dockerfile.dev
+**/docker-compose.dev.yml
+
+# Container volumes
+postgres_data/
+data/
+volumes/
+*/pgdata/
+
+# ================================
+# Temporary files
+# ================================
+*.tmp
+*.temp
+*.bak
+*.backup
+*.old
+*.orig
+.cache/
+.cache-loader/
+.tmp/
+coverage/
+.nyc_output/
+
+# ================================
+# PM2
+# ================================
+.pids
+.pm2
+*.pid
+
+# ================================
+# TypeScript (if ever used)
+# ================================
+*.tsbuildinfo
+
+# ================================
+# Quasar / Vue (frontend admin)
+# ================================
+.quasar/
+.sass-cache/
+.happypack/
+public/build/
+public/dist/

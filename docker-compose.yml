@@ -1,0 +1,20 @@
+version: "3.8"
+
+services:
+  api:
+    build: .
+    container_name: restaurante_api
+    restart: always
+    environment:
+      PORT: 4000
+      DATABASE_URL: ${DATABASE_URL}
+      JWT_SECRET: ${JWT_SECRET}
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN}
+    ports:
+      - "4000:4000"
+    networks:
+      - backend_net
+
+networks:
+  backend_net:
+    driver: bridge
