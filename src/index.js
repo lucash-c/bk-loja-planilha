@@ -13,6 +13,9 @@ const { errorHandler } = require('./middleware/errorHandler');
 
 const app = express();
 
+// 🔴 IMPORTANTE PARA COOLIFY / NGINX / PROXY
+app.set('trust proxy', 1);
+
 app.use(helmet());
 app.use(express.json());
 
