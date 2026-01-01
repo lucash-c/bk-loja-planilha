@@ -1,5 +1,5 @@
 # ---- 1) Imagem base leve ----
-FROM node:18-alpine AS base
+FROM node:20-alpine AS base
 
 # Criar diretório da aplicação
 WORKDIR /app
