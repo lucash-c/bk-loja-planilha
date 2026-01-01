@@ -2,27 +2,74 @@ const express = require('express');
 const router = express.Router();
 const { body } = require('express-validator');
 const authCtrl = require('../controllers/authController');
+const { authenticate } = require('../middleware/authMiddleware');
 
-// login
-router.post('/login', [
-  body('email').isEmail(),
-  body('password').isString().notEmpty()
-], authCtrl.login);
+/**
+ * LOGIN
+ * Retorna usuário + lista de lojas
+ * NÃO gera token
+ */
+router.post(
+  '/login',
+  [
+    body('email').isEmail(),
+    body('password').isString().notEmpty()
+  ],
+  authCtrl.login
+);
 
-// criar usuário admin (use só uma vez; proteja em produção)
-router.post('/register', [
-  body('email').isEmail(),
-  body('password').isLength({ min: 6 })
-], authCtrl.register);
+/**
+ * SELECT STORE
+ * Gera JWT com loja_id
+ * REQUER usuário autenticado
+ */
+router.post(
+  '/select-store',
+  authenticate,
+  [
+    body('loja_id').isUUID()
+  ],
+  authCtrl.selectStore
+);
 
-// esqueci senha -> envia código
-router.post('/forgot', [ body('email').isEmail() ], authCtrl.forgotPassword);
+/**
+ * REGISTER
+ * Cria usuário (use com cuidado em produção)
+ */
+router.post(
+  '/register',
+  [
+    body('email').isEmail(),
+    body('password').isLength({ min: 6 }),
+    body('name').optional().isString()
+  ],
+  authCtrl.register
+);
 
-// reset com código
-router.post('/reset', [
-  body('email').isEmail(),
-  body('code').isLength({ min: 5 }),
-  body('newPassword').isLength({ min: 6 })
-], authCtrl.resetPassword);
+/**
+ * FORGOT PASSWORD
+ * Envia código por e-mail
+ */
+router.post(
+  '/forgot',
+  [
+    body('email').isEmail()
+  ],
+  authCtrl.forgotPassword
+);
+
+/**
+ * RESET PASSWORD
+ * Confirma código e altera senha
+ */
+router.post(
+  '/reset',
+  [
+    body('email').isEmail(),
+    body('code').isLength({ min: 5 }),
+    body('newPassword').isLength({ min: 6 })
+  ],
+  authCtrl.resetPassword
+);
 
 module.exports = router;

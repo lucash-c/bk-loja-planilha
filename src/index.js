@@ -5,6 +5,10 @@ const cors = require('cors');
 const rateLimit = require('express-rate-limit');
 const authRoutes = require('./routes/auth');
 const ordersRoutes = require('./routes/orders');
+const lojasRoutes = require('./routes/lojas');
+const storeSettingsRoutes =  require('./routes/storeSettings');
+const publicMenuRoutes = require('./routes/publicMenu');
+const productsRoutes = require('./routes/products');
 const { errorHandler } = require('./middleware/errorHandler');
 
 const app = express();
@@ -25,6 +29,10 @@ app.use(limiter);
 
 app.use('/api/auth', authRoutes);
 app.use('/api/orders', ordersRoutes);
+app.use('/products', productsRoutes);
+app.use('/api/lojas', lojasRoutes);
+app.use('/api/store-settings', storeSettingsRoutes);
+app.use('/public', publicMenuRoutes);
 
 app.get('/', (req, res) => res.json({ ok: true, version: '1.0' }));
 

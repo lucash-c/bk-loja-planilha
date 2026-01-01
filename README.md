@@ -1,32 +1,197 @@
-Login
+============================================================
+BACKEND - SISTEMA MULTI-LOJA (API)
+============================================================
+
+------------------------------------------------------------
+AUTENTICAÇÃO
+------------------------------------------------------------
+
+LOGIN (ETAPA 1 - SEM TOKEN)
 
 POST /api/auth/login
 Body JSON:
 
-{ "email": "admin@loja.com", "password": "senha123" }
-
+{
+  "email": "admin@admin.com",
+  "password": "senha123"
+}
 
 Resposta:
 
-{ "token": "JWT...", "user": { "id": "...", "email": "...", "name": "..." } }
+{
+  "ok": true,
+  "user": {
+    "id": "uuid-do-usuario",
+    "email": "admin@admin.com",
+    "name": "Admin",
+    "role": "admin"
+  },
+  "lojas": [
+    {
+      "id": "uuid-loja-1",
+      "name": "Loja Centro",
+      "is_active": true,
+      "user_role": "owner"
+    }
+  ]
+}
+
+OBS:
+- Nesta etapa NÃO é gerado token
+- O frontend deve listar as lojas disponíveis para o usuário
 
 
-O frontend deve guardar token em memória/localStorage e enviar Authorization: Bearer <token> nas rotas protegidas.
+------------------------------------------------------------
+SELECIONAR LOJA (ETAPA 2 - GERA TOKEN)
+------------------------------------------------------------
 
-Esqueci senha
+POST /api/auth/select-store
+Body JSON:
+
+{
+  "user_id": "uuid-do-usuario",
+  "loja_id": "uuid-da-loja"
+}
+
+Resposta:
+
+{
+  "ok": true,
+  "token": "JWT_COM_USUARIO_E_LOJA",
+  "loja": {
+    "id": "uuid-da-loja",
+    "name": "Loja Centro"
+  }
+}
+
+OBS:
+- O token representa USUÁRIO + LOJA ATIVA
+- Para trocar de loja, basta chamar este endpoint novamente
+- Não é necessário novo login
+
+O frontend deve armazenar o token e enviar em todas as rotas protegidas:
+
+Authorization: Bearer <token>
+
+
+------------------------------------------------------------
+RECUPERAÇÃO DE SENHA
+------------------------------------------------------------
 
 POST /api/auth/forgot
-Body: { "email": "admin@loja.com" }
-Se o e-mail existir, o backend gera código e envia. Para evitar enumeração de e-mail, resposta é sempre { ok: true }.
-
-Resetar senha
 
 POST /api/auth/reset
-Body: { "email": "...", "code": "123456", "newPassword": "novaSenha" }
 
-Criar pedido (cliente)
 
-POST /api/orders — pública, para quando cliente fechar pedido:
+------------------------------------------------------------
+PRODUTOS (PAINEL ADMIN / PDV)
+------------------------------------------------------------
+
+OBS GERAL:
+- TODAS as rotas de produtos usam JWT
+- A loja é resolvida SEMPRE via token (req.loja)
+- Não é permitido informar loja_id no body
+- Compatível com SQLite (dev) e PostgreSQL (prod)
+
+------------------------------------------------------------
+CRIAR PRODUTO
+------------------------------------------------------------
+
+POST /api/products
+
+Header:
+Authorization: Bearer <token>
+
+Body JSON:
+
+{
+  "name": "Pizza Calabresa",
+  "description": "Pizza grande de calabresa",
+  "base_price": 39.90,
+  "image_url": "https://drive.google.com/...",
+  "has_options": true
+}
+
+Campos:
+- name (obrigatório)
+- base_price (number)
+- image_url (opcional)
+- has_options:
+  - false → produto simples
+  - true → produto com opções (pizza, lanche customizável)
+
+------------------------------------------------------------
+LISTAR PRODUTOS DA LOJA ATIVA
+------------------------------------------------------------
+
+GET /api/products
+
+Header:
+Authorization: Bearer <token>
+
+Query Params (opcional):
+- active=true → retorna apenas produtos ativos
+
+------------------------------------------------------------
+OBTER PRODUTO POR ID
+------------------------------------------------------------
+
+GET /api/products/{id}
+
+Header:
+Authorization: Bearer <token>
+
+OBS:
+- Retorna apenas se o produto pertencer à loja ativa
+
+------------------------------------------------------------
+ATUALIZAR PRODUTO
+------------------------------------------------------------
+
+PUT /api/products/{id}
+
+Header:
+Authorization: Bearer <token>
+
+Body (parcial):
+
+{
+  "name": "Pizza Calabresa Especial",
+  "base_price": 42.90,
+  "has_options": true,
+  "is_active": true
+}
+
+OBS:
+- Atualização parcial via COALESCE
+- Não é possível trocar a loja do produto
+
+------------------------------------------------------------
+DESATIVAR PRODUTO (SOFT DELETE)
+------------------------------------------------------------
+
+DELETE /api/products/{id}
+
+Header:
+Authorization: Bearer <token>
+
+OBS:
+- Apenas marca is_active = false
+- Produto não é removido do banco
+
+
+------------------------------------------------------------
+PEDIDOS
+------------------------------------------------------------
+
+CRIAR PEDIDO (CLIENTE FINAL - PÚBLICO)
+
+POST /api/orders
+
+Header obrigatório:
+X-LOJA-KEY: chave-publica-da-loja
+
+Body JSON:
 
 {
   "external_id": "ABC123",
@@ -37,70 +202,102 @@ POST /api/orders — pública, para quando cliente fechar pedido:
   "total": 45.50,
   "notes": "Sem cebola",
   "items": [
-    {"product_name":"X-Bacon","quantity":1,"unit_price":20.00},
-    {"product_name":"Refrigerante","quantity":1,"unit_price":5.50}
+    { "product_name": "X-Bacon", "quantity": 1, "unit_price": 20.00 },
+    { "product_name": "Refrigerante", "quantity": 1, "unit_price": 5.50 }
   ]
 }
 
-Listar pedidos (painel)
+OBS:
+- Esta rota NÃO usa JWT
+- A loja é identificada via X-LOJA-KEY
 
-GET /api/orders — requer Authorization (JWT).
 
-Obter pedido
+------------------------------------------------------------
+LISTAR PEDIDOS (PAINEL ADMIN)
+------------------------------------------------------------
 
-GET /api/orders/{id} — pode ser id interno (UUID) ou external_id enviado no pedido.
+GET /api/orders
 
-Atualizar status
+Header:
+Authorization: Bearer <token>
+
+
+------------------------------------------------------------
+OBTER PEDIDO
+------------------------------------------------------------
+
+GET /api/orders/{id}
+
+{id} pode ser:
+- UUID interno
+- external_id
+
+
+------------------------------------------------------------
+ATUALIZAR STATUS DO PEDIDO
+------------------------------------------------------------
 
 PUT /api/orders/{id}/status
-Body: { "status": "Entregue", "payment_status": "paid" } — requer Authorization.
 
-🔁 Integração com o frontend que criamos
+Header:
+Authorization: Bearer <token>
 
-No fluxo de checkout do cliente: ao confirmar o pedido use POST /api/orders para gravar o pedido no backend. O backend retorna o order.id (UUID) e external_id se presente.
+Body:
 
-No WhatsApp, você ainda pode enviar o texto para o restaurante, mas inclua o external_id (ou id) no texto, ex: Pedido #ABC123 — consulte painel: https://seusite/admin/pedido/ABC123
-
-O painel admin (frontend) usa POST /api/auth/login para obter token e depois chama GET /api/orders e GET /api/orders/:id com Authorization: Bearer <token>.
-
-🔧 Observações de segurança e produção
-
-Em produção, proteja a rota /register — use-a apenas para criar os primeiros usuários e depois remova/disable.
-
-Troque a JWT_SECRET por uma string segura e longa, guarde em variáveis de ambiente.
-
-Use HTTPS no domínio onde hospedar o backend.
-
-Configure o SMTP com um provedor confiável (SendGrid, Mailgun, Amazon SES, etc).
-
-Se quiser alta segurança para senhas: na criação de usuários, use bcrypt com salt (já feito). Se desejar ainda mais, adicione rate limiting por IP para endpoints de login/forgot.
-
-Para escalar, considere usar fila para envio de e-mail (Bull + Redis).
-
-✅ Passos rápidos para rodar local (com Docker)
-
-Copie os arquivos para backend/
-
-Crie .env a partir de .env.example e ajuste DATABASE_URL se necessário.
-
-docker compose up -d (rodará o Postgres)
-
-Instale dependências: npm install
-
-Rode migrations: npm run migrate (rodará schema.sql conectando-se ao DATABASE_URL)
-
-Crie um usuário admin (opção rápida via cURL):
-
-curl -X POST http://localhost:4000/api/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{"email":"admin@loja.com","password":"senha123","name":"Admin"}'
+{
+  "status": "delivered",
+  "payment_status": "paid"
+}
 
 
-Start server: npm run dev (ou npm start)
+------------------------------------------------------------
+CONFIGURAÇÕES DA LOJA
+------------------------------------------------------------
 
-Teste login: POST /api/auth/login → pegue token → teste GET /api/orders com header Authorization.
+GET /api/store-settings
+PUT /api/store-settings
 
 
-*********************** PROXIMO PASSO ****************************************
-TESTAR NO POSTMAN
-FAZER DEPLOY
+------------------------------------------------------------
+BANCO DE DADOS (DEV x PRODUÇÃO)
+------------------------------------------------------------
+
+DESENVOLVIMENTO:
+- SQLite automático
+- Inicialização:
+  node scripts/init-sqlite.js
+
+PRODUÇÃO:
+- PostgreSQL
+- Ativado quando DATABASE_URL existir
+- Compatível com Coolify
+
+
+------------------------------------------------------------
+RODAR LOCAL
+------------------------------------------------------------
+
+npm install
+node scripts/init-sqlite.js
+npm run dev
+
+
+------------------------------------------------------------
+DEPLOY (COOLIFY)
+------------------------------------------------------------
+
+- Definir DATABASE_URL
+- Definir JWT_SECRET
+- Definir PG_SSL se necessário
+- Porta padrão: 4000
+
+
+------------------------------------------------------------
+PRÓXIMOS PASSOS
+------------------------------------------------------------
+
+1) Product Options (sabores, adicionais, bordas)
+2) Cardápio público
+3) PDV
+4) Integração WhatsApp
+============================================================

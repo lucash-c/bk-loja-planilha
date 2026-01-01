@@ -1,18 +1,48 @@
 const express = require('express');
 const router = express.Router();
+
 const ordersCtrl = require('../controllers/ordersController');
 const { authenticate } = require('../middleware/authMiddleware');
+const { identifyStore } = require('../middleware/identifyStoreMiddleware');
 
-// criar pedido (pode ser chamado pelo frontend cliente)
-router.post('/', ordersCtrl.createOrder);
+/**
+ * ===============================
+ * PEDIDO PÚBLICO (CLIENTE FINAL)
+ * ===============================
+ * - SEM JWT
+ * - Loja identificada por:
+ *   - Header: X-LOJA-KEY
+ *   - Query param
+ */
+router.post(
+  '/',
+  identifyStore,
+  ordersCtrl.createOrder
+);
 
-// listar pedidos (protegido)
-router.get('/', authenticate, ordersCtrl.listOrders);
+/**
+ * ===============================
+ * PAINEL ADMIN (PROTEGIDO)
+ * ===============================
+ * - JWT obrigatório
+ * - Loja vem do token
+ */
+router.get(
+  '/',
+  authenticate,
+  ordersCtrl.listOrders
+);
 
-// obter um pedido (protegido)
-router.get('/:id', authenticate, ordersCtrl.getOrder);
+router.get(
+  '/:id',
+  authenticate,
+  ordersCtrl.getOrder
+);
 
-// atualizar status (protegido)
-router.put('/:id/status', authenticate, ordersCtrl.updateStatus);
+router.put(
+  '/:id/status',
+  authenticate,
+  ordersCtrl.updateStatus
+);
 
 module.exports = router;
