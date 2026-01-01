@@ -11,13 +11,13 @@ CREATE TABLE IF NOT EXISTS users (
     email TEXT UNIQUE NOT NULL,
     name TEXT,
     password_hash TEXT NOT NULL,
-    role TEXT NOT NULL DEFAULT 'admin', -- admin | staff
+    role TEXT NOT NULL DEFAULT 'admin',
     whatsapp VARCHAR(30),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
 -- ==========================================
--- LOJAS (entidade principal)
+-- LOJAS
 -- ==========================================
 CREATE TABLE IF NOT EXISTS lojas (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -31,13 +31,13 @@ CREATE TABLE IF NOT EXISTS lojas (
 CREATE INDEX IF NOT EXISTS idx_lojas_public_key ON lojas(public_key);
 
 -- ==========================================
--- USER_LOJAS (vínculo usuário <-> loja)
+-- USER_LOJAS
 -- ==========================================
 CREATE TABLE IF NOT EXISTS user_lojas (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     loja_id UUID NOT NULL REFERENCES lojas(id) ON DELETE CASCADE,
-    role TEXT NOT NULL DEFAULT 'owner', -- owner | manager | staff
+    role TEXT NOT NULL DEFAULT 'owner',
     credits NUMERIC(10,2) DEFAULT 0 CHECK (credits >= 0),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
@@ -47,7 +47,7 @@ CREATE TABLE IF NOT EXISTS user_lojas (
 CREATE INDEX IF NOT EXISTS idx_user_lojas_user_id ON user_lojas(user_id);
 CREATE INDEX IF NOT EXISTS idx_user_lojas_loja_id ON user_lojas(loja_id);
 
--- Trigger updated_at user_lojas
+-- Trigger user_lojas
 CREATE OR REPLACE FUNCTION update_user_lojas_timestamp()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -56,10 +56,12 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS tg_update_user_lojas ON user_lojas;
+
 CREATE TRIGGER tg_update_user_lojas
 BEFORE UPDATE ON user_lojas
 FOR EACH ROW
-EXECUTE PROCEDURE update_user_lojas_timestamp();
+EXECUTE FUNCTION update_user_lojas_timestamp();
 
 -- ==========================================
 -- STORE_SETTINGS
@@ -84,10 +86,12 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS tg_update_store_settings ON store_settings;
+
 CREATE TRIGGER tg_update_store_settings
 BEFORE UPDATE ON store_settings
 FOR EACH ROW
-EXECUTE PROCEDURE update_store_settings_timestamp();
+EXECUTE FUNCTION update_store_settings_timestamp();
 
 -- ==========================================
 -- ORDERS
@@ -112,7 +116,6 @@ CREATE INDEX IF NOT EXISTS idx_orders_external_id ON orders(external_id);
 
 -- ==========================================
 -- ORDER_ITEMS
--- (agora com opções escolhidas)
 -- ==========================================
 CREATE TABLE IF NOT EXISTS order_items (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -121,8 +124,6 @@ CREATE TABLE IF NOT EXISTS order_items (
     quantity INTEGER NOT NULL CHECK (quantity > 0),
     unit_price NUMERIC(10,2) NOT NULL CHECK (unit_price >= 0),
     total_price NUMERIC(10,2) NOT NULL CHECK (total_price >= 0),
-
-    -- Opções escolhidas (sabores, adicionais, bordas, etc)
     options_json JSONB,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
@@ -154,7 +155,7 @@ CREATE TABLE IF NOT EXISTS product_options (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     product_id UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
-    type TEXT NOT NULL DEFAULT 'single', -- single | multiple
+    type TEXT NOT NULL DEFAULT 'single',
     required BOOLEAN DEFAULT FALSE,
     min_choices INTEGER DEFAULT 0,
     max_choices INTEGER DEFAULT 1,
@@ -175,7 +176,6 @@ CREATE TABLE IF NOT EXISTS product_option_items (
 );
 
 CREATE INDEX IF NOT EXISTS idx_option_items_option_id ON product_option_items(option_id);
-
 
 -- ==========================================
 -- PASSWORD RESETS
