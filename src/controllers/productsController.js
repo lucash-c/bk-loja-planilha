@@ -1,57 +1,11 @@
 const db = require('../config/db');
 
 /**
- * Criar produto
- * Loja SEMPRE vem do token (req.loja)
+ * ============================
+ * PRODUTOS
+ * ============================
  */
 
-/*versao testes no sqlite
-async function createProduct(req, res) {
-  try {
-    const lojaId = req.loja.id;
-
-    let {
-      name,
-      description,
-      base_price,
-      image_url,
-      has_options = false
-    } = req.body;
-
-    if (!name) {
-      return res.status(400).json({ error: 'name é obrigatório' });
-    }
-
-    // Força tipos compatíveis com SQLite/Postgres
-    name = String(name);
-    description = description != null ? String(description) : null;
-    base_price = base_price != null ? Number(base_price) : 0;
-    image_url = image_url != null ? String(image_url) : null;
-    has_options = has_options ? 1 : 0; // SQLite: 0/1; Postgres aceita true/false, mas 0/1 funciona também
-
-    const { rows } = await db.query(
-      `
-      INSERT INTO products (
-        loja_id,
-        name,
-        description,
-        base_price,
-        image_url,
-        has_options
-      )
-      VALUES ($1, $2, $3, $4, $5, $6)
-      RETURNING *
-      `,
-      [lojaId, name, description, base_price, image_url, has_options]
-    );
-
-    return res.status(201).json(rows[0]);
-  } catch (err) {
-    console.error('Erro ao criar produto:', err);
-    return res.status(500).json({ error: 'Erro interno ao criar produto' });
-  }
-}
-*/
 async function createProduct(req, res) {
   try {
     const lojaId = req.loja.id;
@@ -98,9 +52,6 @@ async function createProduct(req, res) {
   }
 }
 
-/**
- * Listar produtos da loja ativa
- */
 async function listProducts(req, res) {
   try {
     const lojaId = req.loja.id;
@@ -127,9 +78,6 @@ async function listProducts(req, res) {
   }
 }
 
-/**
- * Buscar produto por ID (da loja ativa)
- */
 async function getProductById(req, res) {
   try {
     const lojaId = req.loja.id;
@@ -156,9 +104,6 @@ async function getProductById(req, res) {
   }
 }
 
-/**
- * Atualizar produto (da loja ativa)
- */
 async function updateProduct(req, res) {
   try {
     const lojaId = req.loja.id;
@@ -210,9 +155,6 @@ async function updateProduct(req, res) {
   }
 }
 
-/**
- * Desativar produto (soft delete) da loja ativa
- */
 async function disableProduct(req, res) {
   try {
     const lojaId = req.loja.id;
@@ -240,10 +182,170 @@ async function disableProduct(req, res) {
   }
 }
 
+/**
+ * ============================
+ * OPÇÕES DE PRODUTO (OPÇÃO A)
+ * ============================
+ */
+
+// Criar opção para um produto
+async function createProductOption(req, res) {
+  try {
+    const lojaId = req.loja.id;
+    const { productId } = req.params;
+
+    const {
+      name,
+      type = 'single',
+      required = false,
+      min_choices = 0,
+      max_choices = 1
+    } = req.body;
+
+    if (!name) {
+      return res.status(400).json({ error: 'name é obrigatório' });
+    }
+
+    // Garante que o produto pertence à loja
+    const productCheck = await db.query(
+      `SELECT id FROM products WHERE id = $1 AND loja_id = $2`,
+      [productId, lojaId]
+    );
+
+    if (!productCheck.rows.length) {
+      return res.status(404).json({ error: 'Produto não encontrado' });
+    }
+
+    const { rows } = await db.query(
+      `
+      INSERT INTO product_options (
+        product_id,
+        name,
+        type,
+        required,
+        min_choices,
+        max_choices
+      )
+      VALUES ($1, $2, $3, $4, $5, $6)
+      RETURNING *
+      `,
+      [
+        productId,
+        name,
+        type,
+        required,
+        min_choices,
+        max_choices
+      ]
+    );
+
+    // Marca produto como tendo opções
+    await db.query(
+      `UPDATE products SET has_options = true WHERE id = $1`,
+      [productId]
+    );
+
+    return res.status(201).json(rows[0]);
+  } catch (err) {
+    console.error('Erro ao criar opção do produto:', err);
+    return res.status(500).json({ error: 'Erro interno ao criar opção' });
+  }
+}
+
+// Listar opções de um produto
+async function listProductOptions(req, res) {
+  try {
+    const lojaId = req.loja.id;
+    const { productId } = req.params;
+
+    const productCheck = await db.query(
+      `SELECT id FROM products WHERE id = $1 AND loja_id = $2`,
+      [productId, lojaId]
+    );
+
+    if (!productCheck.rows.length) {
+      return res.status(404).json({ error: 'Produto não encontrado' });
+    }
+
+    const { rows } = await db.query(
+      `
+      SELECT *
+      FROM product_options
+      WHERE product_id = $1
+      ORDER BY created_at ASC
+      `,
+      [productId]
+    );
+
+    return res.json(rows);
+  } catch (err) {
+    console.error('Erro ao listar opções do produto:', err);
+    return res.status(500).json({ error: 'Erro interno ao listar opções' });
+  }
+}
+
+// Criar item de opção
+async function createProductOptionItem(req, res) {
+  try {
+    const lojaId = req.loja.id;
+    const { optionId } = req.params;
+
+    const { name, price = 0, is_active = true } = req.body;
+
+    if (!name) {
+      return res.status(400).json({ error: 'name é obrigatório' });
+    }
+
+    // Valida se a opção pertence a um produto da loja
+    const optionCheck = await db.query(
+      `
+      SELECT po.id
+      FROM product_options po
+      JOIN products p ON p.id = po.product_id
+      WHERE po.id = $1
+        AND p.loja_id = $2
+      `,
+      [optionId, lojaId]
+    );
+
+    if (!optionCheck.rows.length) {
+      return res.status(404).json({ error: 'Opção não encontrada' });
+    }
+
+    const { rows } = await db.query(
+      `
+      INSERT INTO product_option_items (
+        option_id,
+        name,
+        price,
+        is_active
+      )
+      VALUES ($1, $2, $3, $4)
+      RETURNING *
+      `,
+      [
+        optionId,
+        name,
+        price,
+        is_active
+      ]
+    );
+
+    return res.status(201).json(rows[0]);
+  } catch (err) {
+    console.error('Erro ao criar item da opção:', err);
+    return res.status(500).json({ error: 'Erro interno ao criar item da opção' });
+  }
+}
+
 module.exports = {
   createProduct,
   listProducts,
   getProductById,
   updateProduct,
-  disableProduct
+  disableProduct,
+
+  createProductOption,
+  listProductOptions,
+  createProductOptionItem
 };
