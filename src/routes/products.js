@@ -41,11 +41,18 @@ router.get(
   productsController.listProductOptions
 );
 
-// Criar item de opção (ex: sabores, adicionais)
+// Criar item de opção (ex: sabores, adicionais...)
 router.post(
   '/options/:optionId/items',
   authenticate,
   productsController.createProductOptionItem
+);
+
+// Listar itens de opção (ex: mussarela, bacon...)
+router.get(
+  '/options/:optionId/items',
+  authenticate,
+  productsController.listProductOptionItems
 );
 
 module.exports = router;

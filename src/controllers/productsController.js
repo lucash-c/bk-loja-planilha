@@ -184,11 +184,10 @@ async function disableProduct(req, res) {
 
 /**
  * ============================
- * OPÇÕES DE PRODUTO (OPÇÃO A)
+ * OPÇÕES DE PRODUTO
  * ============================
  */
 
-// Criar opção para um produto
 async function createProductOption(req, res) {
   try {
     const lojaId = req.loja.id;
@@ -206,7 +205,6 @@ async function createProductOption(req, res) {
       return res.status(400).json({ error: 'name é obrigatório' });
     }
 
-    // Garante que o produto pertence à loja
     const productCheck = await db.query(
       `SELECT id FROM products WHERE id = $1 AND loja_id = $2`,
       [productId, lojaId]
@@ -229,17 +227,9 @@ async function createProductOption(req, res) {
       VALUES ($1, $2, $3, $4, $5, $6)
       RETURNING *
       `,
-      [
-        productId,
-        name,
-        type,
-        required,
-        min_choices,
-        max_choices
-      ]
+      [productId, name, type, required, min_choices, max_choices]
     );
 
-    // Marca produto como tendo opções
     await db.query(
       `UPDATE products SET has_options = true WHERE id = $1`,
       [productId]
@@ -252,7 +242,6 @@ async function createProductOption(req, res) {
   }
 }
 
-// Listar opções de um produto
 async function listProductOptions(req, res) {
   try {
     const lojaId = req.loja.id;
@@ -279,12 +268,53 @@ async function listProductOptions(req, res) {
 
     return res.json(rows);
   } catch (err) {
-    console.error('Erro ao listar opções do produto:', err);
+    console.error('Erro ao listar opções:', err);
     return res.status(500).json({ error: 'Erro interno ao listar opções' });
   }
 }
 
-// Criar item de opção
+/**
+ * 🔥 ENDPOINT QUE FALTAVA
+ * Listar itens de uma opção
+ */
+async function listProductOptionItems(req, res) {
+  try {
+    const lojaId = req.loja.id;
+    const { optionId } = req.params;
+
+    const optionCheck = await db.query(
+      `
+      SELECT po.id
+      FROM product_options po
+      JOIN products p ON p.id = po.product_id
+      WHERE po.id = $1
+        AND p.loja_id = $2
+      `,
+      [optionId, lojaId]
+    );
+
+    if (!optionCheck.rows.length) {
+      return res.status(404).json({ error: 'Opção não encontrada' });
+    }
+
+    const { rows } = await db.query(
+      `
+      SELECT *
+      FROM product_option_items
+      WHERE option_id = $1
+        AND is_active = true
+      ORDER BY name ASC
+      `,
+      [optionId]
+    );
+
+    return res.json(rows);
+  } catch (err) {
+    console.error('Erro ao listar itens da opção:', err);
+    return res.status(500).json({ error: 'Erro interno ao listar itens' });
+  }
+}
+
 async function createProductOptionItem(req, res) {
   try {
     const lojaId = req.loja.id;
@@ -296,7 +326,6 @@ async function createProductOptionItem(req, res) {
       return res.status(400).json({ error: 'name é obrigatório' });
     }
 
-    // Valida se a opção pertence a um produto da loja
     const optionCheck = await db.query(
       `
       SELECT po.id
@@ -323,12 +352,7 @@ async function createProductOptionItem(req, res) {
       VALUES ($1, $2, $3, $4)
       RETURNING *
       `,
-      [
-        optionId,
-        name,
-        price,
-        is_active
-      ]
+      [optionId, name, price, is_active]
     );
 
     return res.status(201).json(rows[0]);
@@ -347,5 +371,6 @@ module.exports = {
 
   createProductOption,
   listProductOptions,
+  listProductOptionItems,
   createProductOptionItem
 };
