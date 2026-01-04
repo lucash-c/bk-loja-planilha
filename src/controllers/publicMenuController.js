@@ -9,10 +9,23 @@ async function getPublicMenu(req, res, next) {
   try {
     const { public_key } = req.params;
 
-    // 1️⃣ resolve loja
+    // 1️⃣ resolve loja (dados públicos)
     const lojaRes = await db.query(
       `
-      SELECT id, name, whatsapp
+      SELECT
+        id,
+        name,
+        whatsapp,
+        logo,
+        facebook,
+        instagram,
+        tiktok,
+        cep,
+        rua,
+        numero,
+        bairro,
+        estado,
+        pais
       FROM lojas
       WHERE public_key = $1
         AND is_active = TRUE
@@ -26,13 +39,14 @@ async function getPublicMenu(req, res, next) {
 
     const loja = lojaRes.rows[0];
 
-    // 2️⃣ produtos ativos
+    // 2️⃣ produtos ativos e visíveis
     const productsRes = await db.query(
       `
       SELECT *
       FROM products
       WHERE loja_id = $1
         AND is_active = TRUE
+        AND is_visible = TRUE
       ORDER BY created_at ASC
       `,
       [loja.id]
@@ -41,12 +55,13 @@ async function getPublicMenu(req, res, next) {
     const products = [];
 
     for (const product of productsRes.rows) {
-      // 3️⃣ opções do produto
+      // 3️⃣ opções visíveis do produto
       const optionsRes = await db.query(
         `
         SELECT *
         FROM product_options
         WHERE product_id = $1
+          AND is_visible = TRUE
         ORDER BY created_at ASC
         `,
         [product.id]
@@ -55,13 +70,14 @@ async function getPublicMenu(req, res, next) {
       const options = [];
 
       for (const option of optionsRes.rows) {
-        // 4️⃣ itens da opção
+        // 4️⃣ itens ativos e visíveis da opção
         const itemsRes = await db.query(
           `
           SELECT *
           FROM product_option_items
           WHERE option_id = $1
             AND is_active = TRUE
+            AND is_visible = TRUE
           ORDER BY name ASC
           `,
           [option.id]
@@ -79,8 +95,23 @@ async function getPublicMenu(req, res, next) {
       });
     }
 
+    // 5️⃣ faixas de frete públicas da loja
+    const deliveryFeesRes = await db.query(
+      `
+      SELECT
+        distance_km,
+        fee,
+        estimated_time_minutes
+      FROM store_delivery_fees
+      WHERE loja_id = $1
+      ORDER BY distance_km ASC
+      `,
+      [loja.id]
+    );
+
     res.json({
       loja,
+      delivery_fees: deliveryFeesRes.rows,
       products
     });
   } catch (err) {

@@ -15,7 +15,8 @@ async function createProduct(req, res) {
       description,
       base_price,
       image_url,
-      has_options = false
+      has_options = false,
+      is_visible = true
     } = req.body;
 
     if (!name) {
@@ -30,9 +31,10 @@ async function createProduct(req, res) {
         description,
         base_price,
         image_url,
-        has_options
+        has_options,
+        is_visible
       )
-      VALUES ($1, $2, $3, $4, $5, $6)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
       RETURNING *
       `,
       [
@@ -41,7 +43,8 @@ async function createProduct(req, res) {
         description || null,
         base_price || 0,
         image_url || null,
-        has_options
+        has_options,
+        is_visible
       ]
     );
 
@@ -55,7 +58,7 @@ async function createProduct(req, res) {
 async function listProducts(req, res) {
   try {
     const lojaId = req.loja.id;
-    const { active } = req.query;
+    const { active, visible } = req.query;
 
     let query = `
       SELECT *
@@ -64,9 +67,8 @@ async function listProducts(req, res) {
     `;
     const params = [lojaId];
 
-    if (active === 'true') {
-      query += ' AND is_active = true';
-    }
+    if (active === 'true') query += ' AND is_active = true';
+    if (visible === 'true') query += ' AND is_visible = true';
 
     query += ' ORDER BY created_at DESC';
 
@@ -115,7 +117,8 @@ async function updateProduct(req, res) {
       base_price,
       image_url,
       has_options,
-      is_active
+      is_active,
+      is_visible
     } = req.body;
 
     const { rows } = await db.query(
@@ -127,9 +130,10 @@ async function updateProduct(req, res) {
         base_price = COALESCE($3, base_price),
         image_url = COALESCE($4, image_url),
         has_options = COALESCE($5, has_options),
-        is_active = COALESCE($6, is_active)
-      WHERE id = $7
-        AND loja_id = $8
+        is_active = COALESCE($6, is_active),
+        is_visible = COALESCE($7, is_visible)
+      WHERE id = $8
+        AND loja_id = $9
       RETURNING *
       `,
       [
@@ -139,6 +143,7 @@ async function updateProduct(req, res) {
         image_url,
         has_options,
         is_active,
+        is_visible,
         id,
         lojaId
       ]
@@ -198,7 +203,8 @@ async function createProductOption(req, res) {
       type = 'single',
       required = false,
       min_choices = 0,
-      max_choices = 1
+      max_choices = 1,
+      is_visible = true
     } = req.body;
 
     if (!name) {
@@ -222,12 +228,13 @@ async function createProductOption(req, res) {
         type,
         required,
         min_choices,
-        max_choices
+        max_choices,
+        is_visible
       )
-      VALUES ($1, $2, $3, $4, $5, $6)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
       RETURNING *
       `,
-      [productId, name, type, required, min_choices, max_choices]
+      [productId, name, type, required, min_choices, max_choices, is_visible]
     );
 
     await db.query(
@@ -246,26 +253,22 @@ async function listProductOptions(req, res) {
   try {
     const lojaId = req.loja.id;
     const { productId } = req.params;
+    const { visible } = req.query;
 
-    const productCheck = await db.query(
-      `SELECT id FROM products WHERE id = $1 AND loja_id = $2`,
-      [productId, lojaId]
-    );
+    let query = `
+      SELECT po.*
+      FROM product_options po
+      JOIN products p ON p.id = po.product_id
+      WHERE po.product_id = $1
+        AND p.loja_id = $2
+    `;
+    const params = [productId, lojaId];
 
-    if (!productCheck.rows.length) {
-      return res.status(404).json({ error: 'Produto não encontrado' });
-    }
+    if (visible === 'true') query += ' AND po.is_visible = true';
 
-    const { rows } = await db.query(
-      `
-      SELECT *
-      FROM product_options
-      WHERE product_id = $1
-      ORDER BY created_at ASC
-      `,
-      [productId]
-    );
+    query += ' ORDER BY po.created_at ASC';
 
+    const { rows } = await db.query(query, params);
     return res.json(rows);
   } catch (err) {
     console.error('Erro ao listar opções:', err);
@@ -274,40 +277,33 @@ async function listProductOptions(req, res) {
 }
 
 /**
- * 🔥 ENDPOINT QUE FALTAVA
- * Listar itens de uma opção
+ * ============================
+ * ITENS DE OPÇÃO
+ * ============================
  */
+
 async function listProductOptionItems(req, res) {
   try {
     const lojaId = req.loja.id;
     const { optionId } = req.params;
+    const { visible } = req.query;
 
-    const optionCheck = await db.query(
-      `
-      SELECT po.id
-      FROM product_options po
+    let query = `
+      SELECT poi.*
+      FROM product_option_items poi
+      JOIN product_options po ON po.id = poi.option_id
       JOIN products p ON p.id = po.product_id
-      WHERE po.id = $1
+      WHERE poi.option_id = $1
         AND p.loja_id = $2
-      `,
-      [optionId, lojaId]
-    );
+        AND poi.is_active = true
+    `;
+    const params = [optionId, lojaId];
 
-    if (!optionCheck.rows.length) {
-      return res.status(404).json({ error: 'Opção não encontrada' });
-    }
+    if (visible === 'true') query += ' AND poi.is_visible = true';
 
-    const { rows } = await db.query(
-      `
-      SELECT *
-      FROM product_option_items
-      WHERE option_id = $1
-        AND is_active = true
-      ORDER BY name ASC
-      `,
-      [optionId]
-    );
+    query += ' ORDER BY poi.name ASC';
 
+    const { rows } = await db.query(query, params);
     return res.json(rows);
   } catch (err) {
     console.error('Erro ao listar itens da opção:', err);
@@ -320,7 +316,12 @@ async function createProductOptionItem(req, res) {
     const lojaId = req.loja.id;
     const { optionId } = req.params;
 
-    const { name, price = 0, is_active = true } = req.body;
+    const {
+      name,
+      price = 0,
+      is_active = true,
+      is_visible = true
+    } = req.body;
 
     if (!name) {
       return res.status(400).json({ error: 'name é obrigatório' });
@@ -347,12 +348,13 @@ async function createProductOptionItem(req, res) {
         option_id,
         name,
         price,
-        is_active
+        is_active,
+        is_visible
       )
-      VALUES ($1, $2, $3, $4)
+      VALUES ($1, $2, $3, $4, $5)
       RETURNING *
       `,
-      [optionId, name, price, is_active]
+      [optionId, name, price, is_active, is_visible]
     );
 
     return res.status(201).json(rows[0]);

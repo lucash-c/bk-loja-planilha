@@ -10,10 +10,46 @@ const crypto = require('crypto');
 async function createLoja(req, res, next) {
   try {
     const userId = req.user.id;
-    const { name, whatsapp } = req.body;
 
-    if (!name) {
-      return res.status(400).json({ error: 'Nome da loja é obrigatório' });
+    const {
+      name,
+      whatsapp,
+      telefone,
+      responsavel_nome,
+      email,
+      cpf_cnpj,
+      pais,
+      estado,
+      cidade,
+      bairro,
+      rua,
+      numero,
+      cep,
+      facebook,
+      instagram,
+      tiktok,
+      logo
+    } = req.body;
+
+    // validações obrigatórias
+    if (
+      !name ||
+      !whatsapp ||
+      !responsavel_nome ||
+      !email ||
+      !cpf_cnpj ||
+      !pais ||
+      !estado ||
+      !cidade ||
+      !bairro ||
+      !rua ||
+      !numero ||
+      !cep ||
+      !logo
+    ) {
+      return res.status(400).json({
+        error: 'Campos obrigatórios não preenchidos'
+      });
     }
 
     const lojaId = uuidv4();
@@ -24,14 +60,52 @@ async function createLoja(req, res, next) {
       `
       INSERT INTO lojas (
         id,
+        public_key,
         name,
         whatsapp,
-        public_key,
+        telefone,
+        responsavel_nome,
+        email,
+        cpf_cnpj,
+        pais,
+        estado,
+        cidade,
+        bairro,
+        rua,
+        numero,
+        cep,
+        facebook,
+        instagram,
+        tiktok,
+        logo,
         is_active
       )
-      VALUES ($1, $2, $3, $4, TRUE)
+      VALUES (
+        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
+        $11,$12,$13,$14,$15,$16,$17,$18,$19,TRUE
+      )
       `,
-      [lojaId, name, whatsapp || null, publicKey]
+      [
+        lojaId,
+        publicKey,
+        name,
+        whatsapp,
+        telefone || null,
+        responsavel_nome,
+        email,
+        cpf_cnpj,
+        pais,
+        estado,
+        cidade,
+        bairro,
+        rua,
+        numero,
+        cep,
+        facebook || null,
+        instagram || null,
+        tiktok || null,
+        logo
+      ]
     );
 
     // vínculo usuário ↔ loja (owner)
@@ -54,7 +128,6 @@ async function createLoja(req, res, next) {
       loja: {
         id: lojaId,
         name,
-        whatsapp,
         public_key: publicKey
       }
     });
@@ -97,7 +170,7 @@ async function listLojas(req, res, next) {
 
 /**
  * GET STORE
- * Detalhes da loja ativa (token)
+ * Detalhes completos da loja ativa
  */
 async function getLoja(req, res, next) {
   try {
@@ -105,12 +178,7 @@ async function getLoja(req, res, next) {
 
     const result = await db.query(
       `
-      SELECT
-        id,
-        name,
-        whatsapp,
-        public_key,
-        is_active
+      SELECT *
       FROM lojas
       WHERE id = $1
       `,
@@ -140,25 +208,36 @@ async function updateLoja(req, res, next) {
       return res.status(403).json({ error: 'Apenas o owner pode alterar a loja' });
     }
 
-    const { name, whatsapp, is_active } = req.body;
+    const allowedFields = [
+      'name',
+      'whatsapp',
+      'telefone',
+      'responsavel_nome',
+      'email',
+      'cpf_cnpj',
+      'pais',
+      'estado',
+      'cidade',
+      'bairro',
+      'rua',
+      'numero',
+      'cep',
+      'facebook',
+      'instagram',
+      'tiktok',
+      'logo',
+      'is_active'
+    ];
 
     const fields = [];
     const values = [];
     let idx = 1;
 
-    if (name !== undefined) {
-      fields.push(`name = $${idx++}`);
-      values.push(name);
-    }
-
-    if (whatsapp !== undefined) {
-      fields.push(`whatsapp = $${idx++}`);
-      values.push(whatsapp);
-    }
-
-    if (is_active !== undefined) {
-      fields.push(`is_active = $${idx++}`);
-      values.push(is_active);
+    for (const field of allowedFields) {
+      if (req.body[field] !== undefined) {
+        fields.push(`${field} = $${idx++}`);
+        values.push(req.body[field]);
+      }
     }
 
     if (!fields.length) {

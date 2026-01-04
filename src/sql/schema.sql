@@ -4,7 +4,7 @@
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 -- ==========================================
--- USERS (administradores / staff)
+-- USERS
 -- ==========================================
 CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -24,11 +24,27 @@ CREATE TABLE IF NOT EXISTS lojas (
     public_key TEXT UNIQUE NOT NULL,
     name TEXT NOT NULL,
     whatsapp VARCHAR(30) NOT NULL,
+    telefone VARCHAR(30),
+    responsavel_nome TEXT NOT NULL,
+    email TEXT NOT NULL,
+    cpf_cnpj TEXT NOT NULL,
+    pais TEXT NOT NULL,
+    estado TEXT NOT NULL,
+    cidade TEXT NOT NULL,
+    bairro TEXT NOT NULL,
+    rua TEXT NOT NULL,
+    numero TEXT NOT NULL,
+    cep TEXT NOT NULL,
+    facebook TEXT,
+    instagram TEXT,
+    tiktok TEXT,
+    logo TEXT NOT NULL,
     is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
 CREATE INDEX IF NOT EXISTS idx_lojas_public_key ON lojas(public_key);
+CREATE INDEX IF NOT EXISTS idx_lojas_cpf_cnpj ON lojas(cpf_cnpj);
 
 -- ==========================================
 -- USER_LOJAS
@@ -43,25 +59,6 @@ CREATE TABLE IF NOT EXISTS user_lojas (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
     UNIQUE (user_id, loja_id)
 );
-
-CREATE INDEX IF NOT EXISTS idx_user_lojas_user_id ON user_lojas(user_id);
-CREATE INDEX IF NOT EXISTS idx_user_lojas_loja_id ON user_lojas(loja_id);
-
--- Trigger user_lojas
-CREATE OR REPLACE FUNCTION update_user_lojas_timestamp()
-RETURNS TRIGGER AS $$
-BEGIN
-    NEW.updated_at = NOW();
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-DROP TRIGGER IF EXISTS tg_update_user_lojas ON user_lojas;
-
-CREATE TRIGGER tg_update_user_lojas
-BEFORE UPDATE ON user_lojas
-FOR EACH ROW
-EXECUTE FUNCTION update_user_lojas_timestamp();
 
 -- ==========================================
 -- STORE_SETTINGS
@@ -78,20 +75,20 @@ CREATE TABLE IF NOT EXISTS store_settings (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
-CREATE OR REPLACE FUNCTION update_store_settings_timestamp()
-RETURNS TRIGGER AS $$
-BEGIN
-    NEW.updated_at = NOW();
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
+-- ==========================================
+-- STORE_DELIVERY_FEES (FRETE POR DISTÂNCIA)
+-- ==========================================
+CREATE TABLE IF NOT EXISTS store_delivery_fees (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    loja_id UUID NOT NULL REFERENCES lojas(id) ON DELETE CASCADE,
+    distance_km INTEGER NOT NULL CHECK (distance_km >= 0),
+    fee NUMERIC(10,2) NOT NULL DEFAULT 0,
+    estimated_time_minutes INTEGER,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    UNIQUE (loja_id, distance_km)
+);
 
-DROP TRIGGER IF EXISTS tg_update_store_settings ON store_settings;
-
-CREATE TRIGGER tg_update_store_settings
-BEFORE UPDATE ON store_settings
-FOR EACH ROW
-EXECUTE FUNCTION update_store_settings_timestamp();
+CREATE INDEX IF NOT EXISTS idx_delivery_fees_loja ON store_delivery_fees(loja_id);
 
 -- ==========================================
 -- ORDERS
@@ -103,6 +100,8 @@ CREATE TABLE IF NOT EXISTS orders (
     customer_name TEXT,
     customer_whatsapp TEXT,
     delivery_address TEXT,
+    delivery_distance_km INTEGER,
+    delivery_fee NUMERIC(10,2) NOT NULL DEFAULT 0,
     total NUMERIC(10,2) NOT NULL DEFAULT 0,
     payment_method TEXT,
     payment_status TEXT DEFAULT 'pending',
@@ -112,7 +111,6 @@ CREATE TABLE IF NOT EXISTS orders (
 );
 
 CREATE INDEX IF NOT EXISTS idx_orders_loja_id ON orders(loja_id);
-CREATE INDEX IF NOT EXISTS idx_orders_external_id ON orders(external_id);
 
 -- ==========================================
 -- ORDER_ITEMS
@@ -128,8 +126,6 @@ CREATE TABLE IF NOT EXISTS order_items (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_order_items_order_id ON order_items(order_id);
-
 -- ==========================================
 -- PRODUCTS
 -- ==========================================
@@ -142,11 +138,9 @@ CREATE TABLE IF NOT EXISTS products (
     image_url TEXT,
     has_options BOOLEAN DEFAULT FALSE,
     is_active BOOLEAN DEFAULT TRUE,
+    is_visible BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
-
-CREATE INDEX IF NOT EXISTS idx_products_loja_id ON products(loja_id);
-CREATE INDEX IF NOT EXISTS idx_products_loja_active ON products(loja_id, is_active);
 
 -- ==========================================
 -- PRODUCT_OPTIONS
@@ -159,10 +153,9 @@ CREATE TABLE IF NOT EXISTS product_options (
     required BOOLEAN DEFAULT FALSE,
     min_choices INTEGER DEFAULT 0,
     max_choices INTEGER DEFAULT 1,
+    is_visible BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
-
-CREATE INDEX IF NOT EXISTS idx_product_options_product_id ON product_options(product_id);
 
 -- ==========================================
 -- PRODUCT_OPTION_ITEMS
@@ -172,10 +165,9 @@ CREATE TABLE IF NOT EXISTS product_option_items (
     option_id UUID NOT NULL REFERENCES product_options(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     price NUMERIC(10,2) NOT NULL DEFAULT 0,
-    is_active BOOLEAN DEFAULT TRUE
+    is_active BOOLEAN DEFAULT TRUE,
+    is_visible BOOLEAN DEFAULT TRUE
 );
-
-CREATE INDEX IF NOT EXISTS idx_option_items_option_id ON product_option_items(option_id);
 
 -- ==========================================
 -- PASSWORD RESETS
@@ -187,8 +179,6 @@ CREATE TABLE IF NOT EXISTS password_resets (
     expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
-
-CREATE INDEX IF NOT EXISTS idx_password_resets_user_id ON password_resets(user_id);
 
 -- ==========================================
 -- SESSIONS
@@ -202,6 +192,3 @@ CREATE TABLE IF NOT EXISTS sessions (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
     expires_at TIMESTAMP WITH TIME ZONE NOT NULL
 );
-
-CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
-CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token);

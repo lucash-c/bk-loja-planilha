@@ -15,6 +15,8 @@ async function createOrder(req, res, next) {
       customer_name,
       customer_whatsapp,
       delivery_address,
+      delivery_fee,
+      delivery_distance_km,
       payment_method,
       total,
       notes,
@@ -36,11 +38,13 @@ async function createOrder(req, res, next) {
         customer_name,
         customer_whatsapp,
         delivery_address,
+        delivery_distance_km,
+        delivery_fee,
         total,
         payment_method,
         notes
       )
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
       `,
       [
         id,
@@ -49,18 +53,19 @@ async function createOrder(req, res, next) {
         customer_name || null,
         customer_whatsapp || null,
         delivery_address || null,
-        total || 0,
+        delivery_distance_km || null,
+        delivery_fee ?? 0,
+        total ?? 0,
         payment_method || null,
         notes || null
       ]
     );
 
-    for (const it of items) {
+    for (const it of items) {       
       const quantity = it.quantity || 1;
       const unitPrice = it.unit_price || 0;
       const totalPrice = quantity * unitPrice;
 
-      // 🔥 NOVO: opções escolhidas (snapshot)
       const optionsJson =
         it.options_json ? JSON.stringify(it.options_json) : null;
 
@@ -94,7 +99,9 @@ async function createOrder(req, res, next) {
       customer_name: customer_name || null,
       customer_whatsapp: customer_whatsapp || null,
       delivery_address: delivery_address || null,
-      total: total || 0,
+      delivery_distance_km: delivery_distance_km || null,
+      delivery_fee: delivery_fee ?? 0,
+      total: total ?? 0,
       payment_method: payment_method || null,
       payment_status: 'pending',
       status: 'new',
@@ -110,7 +117,6 @@ async function createOrder(req, res, next) {
 
 /**
  * LIST ORDERS
- * Apenas pedidos da loja ativa
  */
 async function listOrders(req, res, next) {
   try {
@@ -159,7 +165,6 @@ async function listOrders(req, res, next) {
 
 /**
  * GET ORDER
- * Só acessa pedido da loja ativa
  */
 async function getOrder(req, res, next) {
   try {
@@ -189,7 +194,6 @@ async function getOrder(req, res, next) {
       )
     ).rows;
 
-    // 🔥 parse do JSON para devolver bonito
     order.items = items.map(it => ({
       ...it,
       options_json: it.options_json
@@ -205,7 +209,6 @@ async function getOrder(req, res, next) {
 
 /**
  * UPDATE STATUS
- * Atualiza somente pedidos da loja ativa
  */
 async function updateStatus(req, res, next) {
   try {
@@ -231,15 +234,11 @@ async function updateStatus(req, res, next) {
       return res.status(400).json({ error: 'Nada para atualizar' });
     }
 
-    const whereLoja = idx++;
-    const whereId1 = idx++;
-    const whereId2 = idx++;
-
     const sql = `
       UPDATE orders
       SET ${updates.join(', ')}
-      WHERE loja_id = $${whereLoja}
-        AND (id = $${whereId1} OR external_id = $${whereId2})
+      WHERE loja_id = $${idx++}
+        AND (id = $${idx++} OR external_id = $${idx++})
     `;
 
     params.push(lojaId, id, id);
