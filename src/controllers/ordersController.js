@@ -3,8 +3,6 @@ const { v4: uuidv4 } = require('uuid');
 
 /**
  * CREATE ORDER
- * Pedido SEMPRE vinculado à loja resolvida pelo middleware
- * (JWT ou X-LOJA-KEY)
  */
 async function createOrder(req, res, next) {
   try {
@@ -17,6 +15,7 @@ async function createOrder(req, res, next) {
       delivery_address,
       delivery_fee,
       delivery_distance_km,
+      delivery_estimated_time_minutes,
       payment_method,
       total,
       notes,
@@ -40,11 +39,12 @@ async function createOrder(req, res, next) {
         delivery_address,
         delivery_distance_km,
         delivery_fee,
+        delivery_estimated_time_minutes,
         total,
         payment_method,
         notes
       )
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
       `,
       [
         id,
@@ -55,13 +55,14 @@ async function createOrder(req, res, next) {
         delivery_address || null,
         delivery_distance_km || null,
         delivery_fee ?? 0,
+        delivery_estimated_time_minutes || null,
         total ?? 0,
         payment_method || null,
         notes || null
       ]
     );
 
-    for (const it of items) {       
+    for (const it of items) {
       const quantity = it.quantity || 1;
       const unitPrice = it.unit_price || 0;
       const totalPrice = quantity * unitPrice;
@@ -92,24 +93,26 @@ async function createOrder(req, res, next) {
       );
     }
 
-    const order = {
-      id,
-      loja_id: lojaId,
-      external_id: external_id || null,
-      customer_name: customer_name || null,
-      customer_whatsapp: customer_whatsapp || null,
-      delivery_address: delivery_address || null,
-      delivery_distance_km: delivery_distance_km || null,
-      delivery_fee: delivery_fee ?? 0,
-      total: total ?? 0,
-      payment_method: payment_method || null,
-      payment_status: 'pending',
-      status: 'new',
-      notes: notes || null,
-      items
-    };
-
-    res.status(201).json({ ok: true, order });
+    res.status(201).json({
+      ok: true,
+      order: {
+        id,
+        loja_id: lojaId,
+        external_id: external_id || null,
+        customer_name: customer_name || null,
+        customer_whatsapp: customer_whatsapp || null,
+        delivery_address: delivery_address || null,
+        delivery_distance_km: delivery_distance_km || null,
+        delivery_fee: delivery_fee ?? 0,
+        delivery_estimated_time_minutes: delivery_estimated_time_minutes || null,
+        total: total ?? 0,
+        payment_method: payment_method || null,
+        payment_status: 'pending',
+        status: 'new',
+        notes: notes || null,
+        items
+      }
+    });
   } catch (err) {
     next(err);
   }
@@ -123,39 +126,21 @@ async function listOrders(req, res, next) {
     const lojaId = req.loja.id;
     const q = req.query.q || '';
 
-    let rows;
-
-    if (q) {
-      rows = (
-        await db.query(
-          `
-          SELECT *
-          FROM orders
-          WHERE loja_id = $1
-            AND (
-              external_id ILIKE $2
-              OR customer_name ILIKE $2
-            )
-          ORDER BY created_at DESC
-          LIMIT 200
-          `,
-          [lojaId, `%${q}%`]
+    const { rows } = await db.query(
+      `
+      SELECT *
+      FROM orders
+      WHERE loja_id = $1
+        AND (
+          $2 = '' OR
+          external_id ILIKE $3 OR
+          customer_name ILIKE $3
         )
-      ).rows;
-    } else {
-      rows = (
-        await db.query(
-          `
-          SELECT *
-          FROM orders
-          WHERE loja_id = $1
-          ORDER BY created_at DESC
-          LIMIT 200
-          `,
-          [lojaId]
-        )
-      ).rows;
-    }
+      ORDER BY created_at DESC
+      LIMIT 200
+      `,
+      [lojaId, q, `%${q}%`]
+    );
 
     res.json(rows);
   } catch (err) {
@@ -243,11 +228,7 @@ async function updateStatus(req, res, next) {
 
     params.push(lojaId, id, id);
 
-    const result = await db.query(sql, params);
-
-    if (result.rowCount === 0) {
-      return res.status(404).json({ error: 'Pedido não encontrado' });
-    }
+    await db.query(sql, params);
 
     const updated = await db.query(
       `
