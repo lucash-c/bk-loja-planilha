@@ -101,6 +101,7 @@ CREATE TABLE IF NOT EXISTS orders (
     customer_whatsapp TEXT,
     delivery_address TEXT,
     delivery_distance_km INTEGER,
+    delivery_estimated_time_minutes INTEGER,
     delivery_fee NUMERIC(10,2) NOT NULL DEFAULT 0,
     total NUMERIC(10,2) NOT NULL DEFAULT 0,
     payment_method TEXT,
