@@ -192,3 +192,32 @@ CREATE TABLE IF NOT EXISTS sessions (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
     expires_at TIMESTAMP WITH TIME ZONE NOT NULL
 );
+
+-- ==========================================
+-- SALES SUMMARY (RESUMO MENSAL DE VENDAS)
+-- ==========================================
+CREATE TABLE IF NOT EXISTS sales_summary (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+    loja_id UUID NOT NULL REFERENCES lojas(id) ON DELETE CASCADE,
+
+    year INTEGER NOT NULL,
+    month INTEGER NOT NULL CHECK (month BETWEEN 1 AND 12),
+
+    total_orders INTEGER NOT NULL DEFAULT 0,
+    total_items INTEGER NOT NULL DEFAULT 0,
+
+    subtotal NUMERIC(12,2) NOT NULL DEFAULT 0,
+    total_delivery_fee NUMERIC(12,2) NOT NULL DEFAULT 0,
+    total_revenue NUMERIC(12,2) NOT NULL DEFAULT 0,
+
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+
+    UNIQUE (loja_id, year, month)
+);
+
+CREATE INDEX IF NOT EXISTS idx_sales_summary_loja
+    ON sales_summary(loja_id);
+
+CREATE INDEX IF NOT EXISTS idx_sales_summary_period
+    ON sales_summary(year, month);

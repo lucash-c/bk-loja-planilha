@@ -138,11 +138,12 @@ async function selectStore(req, res, next) {
       SELECT
         u.id AS user_id,
         u.email,
-        u.name,
+        u.name,       
         u.role AS user_role,
 
         l.id AS loja_id,
         l.name AS loja_name,
+        l.public_key,
 
         ul.role AS loja_role
       FROM users u
@@ -178,7 +179,8 @@ async function selectStore(req, res, next) {
       token,
       loja: {
         id: data.loja_id,
-        name: data.loja_name
+        name: data.loja_name,
+        public_key: data.public_key
       }
     });
   } catch (err) {
