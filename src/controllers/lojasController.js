@@ -31,7 +31,6 @@ async function createLoja(req, res, next) {
       logo
     } = req.body;
 
-    // validações obrigatórias
     if (
       !name ||
       !whatsapp ||
@@ -55,7 +54,6 @@ async function createLoja(req, res, next) {
     const lojaId = uuidv4();
     const publicKey = crypto.randomBytes(16).toString('hex');
 
-    // cria loja
     await db.query(
       `
       INSERT INTO lojas (
@@ -108,7 +106,6 @@ async function createLoja(req, res, next) {
       ]
     );
 
-    // vínculo usuário ↔ loja (owner)
     await db.query(
       `
       INSERT INTO user_lojas (
@@ -294,10 +291,179 @@ async function regeneratePublicKey(req, res, next) {
   }
 }
 
+function parseCredits(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return n;
+}
+
+async function ensureUserHasAccess(userId, lojaId) {
+  const { rows } = await db.query(
+    `
+    SELECT role
+    FROM user_lojas
+    WHERE user_id = $1
+      AND loja_id = $2
+    `,
+    [userId, lojaId]
+  );
+
+  return rows[0] || null;
+}
+
+/**
+ * GET STORE CREDITS (by loja_id)
+ */
+async function getLojaCredits(req, res, next) {
+  try {
+    const userId = req.user.id;
+    const lojaId = req.params.id;
+
+    const access = await ensureUserHasAccess(userId, lojaId);
+    if (!access) {
+      return res.status(403).json({ error: 'Acesso negado à loja' });
+    }
+
+    const { rows } = await db.query(
+      `
+      SELECT credits
+      FROM user_lojas
+      WHERE loja_id = $1
+        AND role = 'owner'
+      LIMIT 1
+      `,
+      [lojaId]
+    );
+
+    if (!rows.length) {
+      return res.status(404).json({ error: 'Loja não encontrada' });
+    }
+
+    res.json({ loja_id: lojaId, credits: Number(rows[0].credits) });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * ADD STORE CREDITS (by loja_id)
+ * body: { credits }
+ */
+async function addLojaCredits(req, res, next) {
+  try {
+    const userId = req.user.id;
+    const lojaId = req.params.id;
+
+    const credits = parseCredits(req.body.credits ?? req.body.amount);
+    if (credits === null) {
+      return res.status(400).json({ error: 'credits deve ser um número maior que zero' });
+    }
+
+    const access = await ensureUserHasAccess(userId, lojaId);
+    if (!access || access.role !== 'owner') {
+      return res.status(403).json({ error: 'Apenas o owner pode adicionar créditos' });
+    }
+
+    const { rows } = await db.query(
+      `
+      UPDATE user_lojas
+      SET credits = credits + $1,
+          updated_at = NOW()
+      WHERE loja_id = $2
+        AND role = 'owner'
+      RETURNING credits
+      `,
+      [credits, lojaId]
+    );
+
+    if (!rows.length) {
+      return res.status(404).json({ error: 'Loja não encontrada' });
+    }
+
+    res.json({
+      ok: true,
+      loja_id: lojaId,
+      credits_added: credits,
+      credits: Number(rows[0].credits)
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * CONSUME STORE CREDITS (by loja_id)
+ * body: { credits }
+ */
+async function consumeLojaCredits(req, res, next) {
+  try {
+    const userId = req.user.id;
+    const lojaId = req.params.id;
+
+    const credits = parseCredits(req.body.credits ?? req.body.amount);
+    if (credits === null) {
+      return res.status(400).json({ error: 'credits deve ser um número maior que zero' });
+    }
+
+    const access = await ensureUserHasAccess(userId, lojaId);
+    if (!access || access.role !== 'owner') {
+      return res.status(403).json({ error: 'Apenas o owner pode consumir créditos' });
+    }
+
+    const { rows } = await db.query(
+      `
+      UPDATE user_lojas
+      SET credits = credits - $1,
+          updated_at = NOW()
+      WHERE loja_id = $2
+        AND role = 'owner'
+        AND credits >= $1
+      RETURNING credits
+      `,
+      [credits, lojaId]
+    );
+
+    if (!rows.length) {
+      const current = await db.query(
+        `
+        SELECT credits
+        FROM user_lojas
+        WHERE loja_id = $1
+          AND role = 'owner'
+        LIMIT 1
+        `,
+        [lojaId]
+      );
+
+      if (!current.rows.length) {
+        return res.status(404).json({ error: 'Loja não encontrada' });
+      }
+
+      return res.status(400).json({
+        error: 'Créditos insuficientes',
+        loja_id: lojaId,
+        credits: Number(current.rows[0].credits)
+      });
+    }
+
+    res.json({
+      ok: true,
+      loja_id: lojaId,
+      credits_consumed: credits,
+      credits: Number(rows[0].credits)
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   createLoja,
   listLojas,
   getLoja,
   updateLoja,
-  regeneratePublicKey
+  regeneratePublicKey,
+  getLojaCredits,
+  addLojaCredits,
+  consumeLojaCredits
 };
