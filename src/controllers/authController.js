@@ -86,7 +86,7 @@ async function login(req, res, next) {
         type: 'user'
       },
       JWT_SECRET,
-      { expiresIn: '15m' }
+      { expiresIn: process.env.JWT_USER_EXPIRES_IN || '8h' }
     );
 
     const lojasRes = await db.query(
