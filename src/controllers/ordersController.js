@@ -17,6 +17,7 @@ async function createOrder(req, res, next) {
       delivery_distance_km,
       delivery_estimated_time_minutes,
       payment_method,
+      origin,
       total,
       notes,
       items = []
@@ -24,6 +25,10 @@ async function createOrder(req, res, next) {
 
     if (!Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ error: 'Pedido sem itens' });
+    }
+
+    if (origin && !['cliente', 'pdv'].includes(origin)) {
+      return res.status(400).json({ error: 'Origem inválida' });
     }
 
     const id = uuidv4();
@@ -42,9 +47,10 @@ async function createOrder(req, res, next) {
         delivery_estimated_time_minutes,
         total,
         payment_method,
+        origin,
         notes
       )
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
       `,
       [
         id,
@@ -58,6 +64,7 @@ async function createOrder(req, res, next) {
         delivery_estimated_time_minutes || null,
         total ?? 0,
         payment_method || null,
+        origin || 'cliente',
         notes || null
       ]
     );
@@ -107,6 +114,7 @@ async function createOrder(req, res, next) {
         delivery_estimated_time_minutes: delivery_estimated_time_minutes || null,
         total: total ?? 0,
         payment_method: payment_method || null,
+        origin: origin || 'cliente',
         payment_status: 'pending',
         status: 'new',
         notes: notes || null,
