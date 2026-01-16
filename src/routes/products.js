@@ -55,4 +55,18 @@ router.get(
   productsController.listProductOptionItems
 );
 
+// Atualizar item de opção
+router.put(
+  '/options/:optionId/items/:itemId',
+  authenticate,
+  productsController.updateProductOptionItem
+);
+
+// Remover item de opção (soft delete)
+router.delete(
+  '/options/:optionId/items/:itemId',
+  authenticate,
+  productsController.deleteProductOptionItem
+);
+
 module.exports = router;
