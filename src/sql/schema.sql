@@ -105,6 +105,7 @@ CREATE TABLE IF NOT EXISTS orders (
     delivery_fee NUMERIC(10,2) NOT NULL DEFAULT 0,
     total NUMERIC(10,2) NOT NULL DEFAULT 0,
     payment_method TEXT,
+    origin TEXT NOT NULL DEFAULT 'cliente',
     payment_status TEXT DEFAULT 'pending',
     status TEXT DEFAULT 'new',
     notes TEXT,
