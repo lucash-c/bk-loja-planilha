@@ -111,6 +111,32 @@ async function createOrder(req, res, next) {
       );
     }
 
+    await db.query(
+      `
+      INSERT INTO order_jobs (
+        order_id,
+        loja_id,
+        job_type,
+        payload
+      )
+      VALUES ($1, $2, $3, $4)
+      `,
+      [
+        id,
+        lojaId,
+        'post_order_actions',
+        JSON.stringify({
+          order_id: id,
+          loja_id: lojaId,
+          actions: {
+            send_whatsapp: true,
+            send_email: true,
+            integrate_erp: true
+          }
+        })
+      ]
+    );
+
     res.status(201).json({
       ok: true,
       order: {

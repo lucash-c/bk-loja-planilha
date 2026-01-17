@@ -116,6 +116,48 @@ CREATE TABLE IF NOT EXISTS orders (
 CREATE INDEX IF NOT EXISTS idx_orders_loja_id ON orders(loja_id);
 
 -- ==========================================
+-- ORDER_JOBS (AÇÕES PÓS-CRIAÇÃO DE PEDIDO)
+-- ==========================================
+CREATE TABLE IF NOT EXISTS order_jobs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    order_id UUID NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+    loja_id UUID NOT NULL REFERENCES lojas(id) ON DELETE CASCADE,
+    job_type TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'processing', 'completed', 'failed')),
+    payload JSONB,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    max_attempts INTEGER NOT NULL DEFAULT 5,
+    last_error TEXT,
+    run_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    locked_at TIMESTAMP WITH TIME ZONE,
+    completed_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_order_jobs_status_run_at
+    ON order_jobs(status, run_at);
+
+CREATE INDEX IF NOT EXISTS idx_order_jobs_order_id
+    ON order_jobs(order_id);
+
+-- ==========================================
+-- ORDER_JOB_ATTEMPTS (OBSERVABILIDADE)
+-- ==========================================
+CREATE TABLE IF NOT EXISTS order_job_attempts (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    job_id UUID NOT NULL REFERENCES order_jobs(id) ON DELETE CASCADE,
+    attempt_number INTEGER NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('started', 'failed', 'completed')),
+    error_message TEXT,
+    started_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    finished_at TIMESTAMP WITH TIME ZONE
+);
+
+CREATE INDEX IF NOT EXISTS idx_order_job_attempts_job_id
+    ON order_job_attempts(job_id);
+
+-- ==========================================
 -- ORDER_ITEMS
 -- ==========================================
 CREATE TABLE IF NOT EXISTS order_items (
