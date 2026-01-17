@@ -73,6 +73,8 @@ async function createOrder(req, res, next) {
       const quantity = it.quantity || 1;
       const unitPrice = it.unit_price || 0;
       const totalPrice = quantity * unitPrice;
+      const observation =
+        it.observation || it.observacao || it.obs || it.observação || null;
 
       const optionsJson =
         it.options_json ? JSON.stringify(it.options_json) : null;
@@ -85,9 +87,10 @@ async function createOrder(req, res, next) {
           quantity,
           unit_price,
           total_price,
+          observation,
           options_json
         )
-        VALUES ($1,$2,$3,$4,$5,$6)
+        VALUES ($1,$2,$3,$4,$5,$6,$7)
         `,
         [
           id,
@@ -95,6 +98,7 @@ async function createOrder(req, res, next) {
           quantity,
           unitPrice,
           totalPrice,
+          observation,
           optionsJson
         ]
       );
