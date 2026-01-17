@@ -99,6 +99,7 @@ CREATE TABLE IF NOT EXISTS orders (
     external_id TEXT,
     customer_name TEXT,
     customer_whatsapp TEXT,
+    order_type TEXT NOT NULL DEFAULT 'entrega' CHECK (order_type IN ('entrega', 'retirada', 'local')),
     delivery_address TEXT,
     delivery_distance_km INTEGER,
     delivery_estimated_time_minutes INTEGER,
