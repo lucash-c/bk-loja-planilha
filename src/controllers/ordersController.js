@@ -16,6 +16,7 @@ async function createOrder(req, res, next) {
       delivery_fee,
       delivery_distance_km,
       delivery_estimated_time_minutes,
+      order_type,
       payment_method,
       origin,
       total,
@@ -31,6 +32,10 @@ async function createOrder(req, res, next) {
       return res.status(400).json({ error: 'Origem inválida' });
     }
 
+    if (order_type && !['entrega', 'retirada', 'local'].includes(order_type)) {
+      return res.status(400).json({ error: 'Tipo de pedido inválido' });
+    }
+
     const id = uuidv4();
 
     await db.query(
@@ -41,6 +46,7 @@ async function createOrder(req, res, next) {
         external_id,
         customer_name,
         customer_whatsapp,
+        order_type,
         delivery_address,
         delivery_distance_km,
         delivery_fee,
@@ -50,7 +56,7 @@ async function createOrder(req, res, next) {
         origin,
         notes
       )
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
       `,
       [
         id,
@@ -58,6 +64,7 @@ async function createOrder(req, res, next) {
         external_id || null,
         customer_name || null,
         customer_whatsapp || null,
+        order_type || 'entrega',
         delivery_address || null,
         delivery_distance_km || null,
         delivery_fee ?? 0,
@@ -112,6 +119,7 @@ async function createOrder(req, res, next) {
         external_id: external_id || null,
         customer_name: customer_name || null,
         customer_whatsapp: customer_whatsapp || null,
+        order_type: order_type || 'entrega',
         delivery_address: delivery_address || null,
         delivery_distance_km: delivery_distance_km || null,
         delivery_fee: delivery_fee ?? 0,
