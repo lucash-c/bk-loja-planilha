@@ -124,6 +124,7 @@ CREATE TABLE IF NOT EXISTS order_items (
     quantity INTEGER NOT NULL CHECK (quantity > 0),
     unit_price NUMERIC(10,2) NOT NULL CHECK (unit_price >= 0),
     total_price NUMERIC(10,2) NOT NULL CHECK (total_price >= 0),
+    observation TEXT,
     options_json JSONB,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
