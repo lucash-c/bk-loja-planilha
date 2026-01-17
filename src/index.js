@@ -33,6 +33,7 @@ app.use(limiter);
 app.use('/api/auth', authRoutes);
 app.use('/api/orders', ordersRoutes);
 app.use('/products', productsRoutes);
+app.use('/api/products', productsRoutes);
 app.use('/api/lojas', lojasRoutes);
 app.use('/api/store-settings', storeSettingsRoutes);
 app.use('/public', publicMenuRoutes);
