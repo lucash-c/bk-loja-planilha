@@ -38,53 +38,69 @@ async function createOrder(req, res, next) {
 
     const id = uuidv4();
 
-    await db.query(
-      `
-      INSERT INTO orders (
-        id,
-        loja_id,
-        external_id,
-        customer_name,
-        customer_whatsapp,
-        order_type,
-        delivery_address,
-        delivery_distance_km,
-        delivery_fee,
-        delivery_estimated_time_minutes,
-        total,
-        payment_method,
-        origin,
-        notes
-      )
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
-      `,
-      [
-        id,
-        lojaId,
-        external_id || null,
-        customer_name || null,
-        customer_whatsapp || null,
-        order_type || 'entrega',
-        delivery_address || null,
-        delivery_distance_km || null,
-        delivery_fee ?? 0,
-        delivery_estimated_time_minutes || null,
-        total ?? 0,
-        payment_method || null,
-        origin || 'cliente',
-        notes || null
-      ]
-    );
+    await db.query('BEGIN');
+    try {
+      await db.query(
+        `
+        INSERT INTO orders (
+          id,
+          loja_id,
+          external_id,
+          customer_name,
+          customer_whatsapp,
+          order_type,
+          delivery_address,
+          delivery_distance_km,
+          delivery_fee,
+          delivery_estimated_time_minutes,
+          total,
+          payment_method,
+          origin,
+          notes
+        )
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+        `,
+        [
+          id,
+          lojaId,
+          external_id || null,
+          customer_name || null,
+          customer_whatsapp || null,
+          order_type || 'entrega',
+          delivery_address || null,
+          delivery_distance_km || null,
+          delivery_fee ?? 0,
+          delivery_estimated_time_minutes || null,
+          total ?? 0,
+          payment_method || null,
+          origin || 'cliente',
+          notes || null
+        ]
+      );
 
-    for (const it of items) {
-      const quantity = it.quantity || 1;
-      const unitPrice = it.unit_price || 0;
-      const totalPrice = quantity * unitPrice;
-      const observation =
-        it.observation || it.observacao || it.obs || it.observação || null;
+      const itemValues = [];
+      const itemPlaceholders = items.map((it, index) => {
+        const quantity = it.quantity || 1;
+        const unitPrice = it.unit_price || 0;
+        const totalPrice = quantity * unitPrice;
+        const observation =
+          it.observation || it.observacao || it.obs || it.observação || null;
+        const optionsJson =
+          it.options_json ? JSON.stringify(it.options_json) : null;
+        const baseIndex = index * 7;
 
-      const optionsJson =
-        it.options_json ? JSON.stringify(it.options_json) : null;
+        itemValues.push(
+          id,
+          it.product_name,
+          quantity,
+          unitPrice,
+          totalPrice,
+          observation,
+          optionsJson
+        );
+
+        return `($${baseIndex + 1},$${baseIndex + 2},$${baseIndex + 3},$${baseIndex + 4},$${baseIndex + 5},$${baseIndex + 6},$${baseIndex + 7})`;
+      });
 
       await db.query(
         `
@@ -97,45 +113,42 @@ async function createOrder(req, res, next) {
           observation,
           options_json
         )
-        VALUES ($1,$2,$3,$4,$5,$6,$7)
+        VALUES ${itemPlaceholders.join(',')}
+        `,
+        itemValues
+      );
+
+      await db.query(
+        `
+        INSERT INTO order_jobs (
+          order_id,
+          loja_id,
+          job_type,
+          payload
+        )
+        VALUES ($1, $2, $3, $4)
         `,
         [
           id,
-          it.product_name,
-          quantity,
-          unitPrice,
-          totalPrice,
-          observation,
-          optionsJson
+          lojaId,
+          'post_order_actions',
+          JSON.stringify({
+            order_id: id,
+            loja_id: lojaId,
+            actions: {
+              send_whatsapp: true,
+              send_email: true,
+              integrate_erp: true
+            }
+          })
         ]
       );
-    }
 
-    await db.query(
-      `
-      INSERT INTO order_jobs (
-        order_id,
-        loja_id,
-        job_type,
-        payload
-      )
-      VALUES ($1, $2, $3, $4)
-      `,
-      [
-        id,
-        lojaId,
-        'post_order_actions',
-        JSON.stringify({
-          order_id: id,
-          loja_id: lojaId,
-          actions: {
-            send_whatsapp: true,
-            send_email: true,
-            integrate_erp: true
-          }
-        })
-      ]
-    );
+      await db.query('COMMIT');
+    } catch (transactionError) {
+      await db.query('ROLLBACK');
+      throw transactionError;
+    }
 
     res.status(201).json({
       ok: true,
