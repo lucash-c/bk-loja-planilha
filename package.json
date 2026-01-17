@@ -5,7 +5,8 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
-    "migrate": "node scripts/migrate.js"
+    "migrate": "node scripts/migrate.js",
+    "worker:orders": "node src/workers/orderJobsWorker.js"
   },
   "dependencies": {
     "bcrypt": "^5.1.0",
