@@ -364,6 +364,86 @@ async function createProductOptionItem(req, res) {
   }
 }
 
+async function updateProductOptionItem(req, res) {
+  try {
+    const lojaId = req.loja.id;
+    const { optionId, itemId } = req.params;
+    const {
+      name,
+      price,
+      is_active,
+      is_visible
+    } = req.body;
+
+    const { rows } = await db.query(
+      `
+      UPDATE product_option_items poi
+      SET
+        name = COALESCE($1, poi.name),
+        price = COALESCE($2, poi.price),
+        is_active = COALESCE($3, poi.is_active),
+        is_visible = COALESCE($4, poi.is_visible)
+      FROM product_options po
+      JOIN products p ON p.id = po.product_id
+      WHERE poi.id = $5
+        AND poi.option_id = po.id
+        AND po.id = $6
+        AND p.loja_id = $7
+      RETURNING poi.*
+      `,
+      [
+        name,
+        price,
+        is_active,
+        is_visible,
+        itemId,
+        optionId,
+        lojaId
+      ]
+    );
+
+    if (!rows.length) {
+      return res.status(404).json({ error: 'Item não encontrado' });
+    }
+
+    return res.json(rows[0]);
+  } catch (err) {
+    console.error('Erro ao atualizar item da opção:', err);
+    return res.status(500).json({ error: 'Erro interno ao atualizar item' });
+  }
+}
+
+async function deleteProductOptionItem(req, res) {
+  try {
+    const lojaId = req.loja.id;
+    const { optionId, itemId } = req.params;
+
+    const { rows } = await db.query(
+      `
+      UPDATE product_option_items poi
+      SET is_active = false
+      FROM product_options po
+      JOIN products p ON p.id = po.product_id
+      WHERE poi.id = $1
+        AND poi.option_id = po.id
+        AND po.id = $2
+        AND p.loja_id = $3
+      RETURNING poi.*
+      `,
+      [itemId, optionId, lojaId]
+    );
+
+    if (!rows.length) {
+      return res.status(404).json({ error: 'Item não encontrado' });
+    }
+
+    return res.json(rows[0]);
+  } catch (err) {
+    console.error('Erro ao remover item da opção:', err);
+    return res.status(500).json({ error: 'Erro interno ao remover item' });
+  }
+}
+
 module.exports = {
   createProduct,
   listProducts,
@@ -374,5 +454,7 @@ module.exports = {
   createProductOption,
   listProductOptions,
   listProductOptionItems,
-  createProductOptionItem
+  createProductOptionItem,
+  updateProductOptionItem,
+  deleteProductOptionItem
 };

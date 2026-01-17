@@ -181,6 +181,58 @@ OBS:
 
 
 ------------------------------------------------------------
+ITENS DE OPÇÃO DE PRODUTO
+------------------------------------------------------------
+
+OBS GERAL:
+- Todas as rotas abaixo exigem JWT
+- A loja é validada pelo token (não informar loja_id)
+- A remoção é soft delete (is_active = false)
+
+------------------------------------------------------------
+ATUALIZAR ITEM DE OPÇÃO
+------------------------------------------------------------
+
+PUT /api/products/options/{optionId}/items/{itemId}
+
+Header:
+Authorization: Bearer <token>
+
+Body (parcial):
+
+{
+  "name": "Bacon extra",
+  "price": 5.50,
+  "is_active": true,
+  "is_visible": true
+}
+
+OBS:
+- Atualização parcial via COALESCE
+- Só atualiza se a opção pertencer à loja ativa
+
+------------------------------------------------------------
+REMOVER ITEM DE OPÇÃO (SOFT DELETE)
+------------------------------------------------------------
+
+DELETE /api/products/options/{optionId}/items/{itemId}
+
+Header:
+Authorization: Bearer <token>
+
+Resposta:
+
+{
+  "id": "uuid-item",
+  "option_id": "uuid-opcao",
+  "name": "Bacon extra",
+  "price": "5.50",
+  "is_active": false,
+  "is_visible": true
+}
+
+
+------------------------------------------------------------
 PEDIDOS
 ------------------------------------------------------------
 
