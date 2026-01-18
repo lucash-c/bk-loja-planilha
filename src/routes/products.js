@@ -20,7 +20,7 @@ router.get('/:id', authenticate, productsController.getProductById);
 // UPDATE
 router.put('/:id', authenticate, productsController.updateProduct);
 
-// DELETE (soft delete)
+// DELETE (hard delete)
 router.delete('/:id', authenticate, productsController.disableProduct);
 
 /**
@@ -62,7 +62,7 @@ router.put(
   productsController.updateProductOptionItem
 );
 
-// Remover item de opção (soft delete)
+// Remover item de opção (hard delete)
 router.delete(
   '/options/:optionId/items/:itemId',
   authenticate,
