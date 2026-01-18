@@ -272,7 +272,7 @@ export async function updateOptionItem(req, res) {
 }
 
 /**
- * Remover item da opção (soft delete)
+ * Remover item da opção (hard delete)
  */
 export async function disableOptionItem(req, res) {
   const { id } = req.params;
@@ -280,8 +280,7 @@ export async function disableOptionItem(req, res) {
   try {
     const { rows } = await db.query(
       `
-      UPDATE product_option_items
-      SET is_active = false
+      DELETE FROM product_option_items
       WHERE id = $1
       RETURNING *
       `,

@@ -167,8 +167,7 @@ async function disableProduct(req, res) {
 
     const { rows } = await db.query(
       `
-      UPDATE products
-      SET is_active = false
+      DELETE FROM products
       WHERE id = $1
         AND loja_id = $2
       RETURNING *
@@ -420,15 +419,17 @@ async function deleteProductOptionItem(req, res) {
 
     const { rows } = await db.query(
       `
-      UPDATE product_option_items poi
-      SET is_active = false
-      FROM product_options po
-      JOIN products p ON p.id = po.product_id
-      WHERE poi.id = $1
-        AND poi.option_id = po.id
-        AND po.id = $2
-        AND p.loja_id = $3
-      RETURNING poi.*
+      DELETE FROM product_option_items
+      WHERE id = $1
+        AND option_id = $2
+        AND EXISTS (
+          SELECT 1
+          FROM product_options po
+          JOIN products p ON p.id = po.product_id
+          WHERE po.id = $2
+            AND p.loja_id = $3
+        )
+      RETURNING *
       `,
       [itemId, optionId, lojaId]
     );
