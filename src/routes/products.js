@@ -41,6 +41,20 @@ router.get(
   productsController.listProductOptions
 );
 
+// Atualizar opção de um produto
+router.put(
+  '/:productId/options/:optionId',
+  authenticate,
+  productsController.updateProductOption
+);
+
+// Remover opção de um produto (hard delete)
+router.delete(
+  '/:productId/options/:optionId',
+  authenticate,
+  productsController.deleteProductOption
+);
+
 // Criar item de opção (ex: sabores, adicionais...)
 router.post(
   '/options/:optionId/items',

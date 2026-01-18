@@ -275,6 +275,90 @@ async function listProductOptions(req, res) {
   }
 }
 
+async function updateProductOption(req, res) {
+  try {
+    const lojaId = req.loja.id;
+    const { productId, optionId } = req.params;
+
+    const {
+      name,
+      type,
+      required,
+      min_choices,
+      max_choices,
+      is_visible
+    } = req.body;
+
+    const { rows } = await db.query(
+      `
+      UPDATE product_options po
+      SET
+        name = COALESCE($1, po.name),
+        type = COALESCE($2, po.type),
+        required = COALESCE($3, po.required),
+        min_choices = COALESCE($4, po.min_choices),
+        max_choices = COALESCE($5, po.max_choices),
+        is_visible = COALESCE($6, po.is_visible)
+      FROM products p
+      WHERE po.id = $7
+        AND po.product_id = $8
+        AND p.id = po.product_id
+        AND p.loja_id = $9
+      RETURNING po.*
+      `,
+      [
+        name,
+        type,
+        required,
+        min_choices,
+        max_choices,
+        is_visible,
+        optionId,
+        productId,
+        lojaId
+      ]
+    );
+
+    if (!rows.length) {
+      return res.status(404).json({ error: 'Opção não encontrada' });
+    }
+
+    return res.json(rows[0]);
+  } catch (err) {
+    console.error('Erro ao atualizar opção:', err);
+    return res.status(500).json({ error: 'Erro interno ao atualizar opção' });
+  }
+}
+
+async function deleteProductOption(req, res) {
+  try {
+    const lojaId = req.loja.id;
+    const { productId, optionId } = req.params;
+
+    const { rows } = await db.query(
+      `
+      DELETE FROM product_options po
+      USING products p
+      WHERE po.id = $1
+        AND po.product_id = $2
+        AND p.id = po.product_id
+        AND p.loja_id = $3
+      RETURNING po.*
+      `,
+      [optionId, productId, lojaId]
+    );
+
+    if (!rows.length) {
+      return res.status(404).json({ error: 'Opção não encontrada' });
+    }
+
+    return res.json(rows[0]);
+  } catch (err) {
+    console.error('Erro ao remover opção:', err);
+    return res.status(500).json({ error: 'Erro interno ao remover opção' });
+  }
+}
+
 /**
  * ============================
  * ITENS DE OPÇÃO
@@ -454,6 +538,8 @@ module.exports = {
 
   createProductOption,
   listProductOptions,
+  updateProductOption,
+  deleteProductOption,
   listProductOptionItems,
   createProductOptionItem,
   updateProductOptionItem,
