@@ -1,25 +1,86 @@
-============================================================
-BACKEND - SISTEMA MULTI-LOJA (API)
-============================================================
+# Backend - Sistema Multi-Loja (API)
 
-------------------------------------------------------------
-AUTENTICAÇÃO
-------------------------------------------------------------
+API Node/Express para gerenciamento de lojas, produtos, pedidos e configurações de um sistema multi-loja. Possui autenticação em duas etapas (usuário e loja), endpoints públicos para pedidos e cardápio, além de suporte a SQLite (dev) e PostgreSQL (prod).
 
-LOGIN (ETAPA 1 - SEM TOKEN)
+## Stack
 
-POST /api/auth/login
-Body JSON:
+- Node.js + Express
+- SQLite (dev) via `better-sqlite3`
+- PostgreSQL (prod) via `pg`
+- JWT para autenticação
 
+## Requisitos
+
+- Node.js 18+
+- SQLite (para desenvolvimento local)
+- PostgreSQL (opcional, produção)
+
+## Configuração
+
+Crie um arquivo `.env` com as variáveis necessárias:
+
+```env
+# App
+PORT=4000
+FRONTEND_ORIGIN=http://localhost:8080
+
+# Auth
+JWT_SECRET=uma_chave_segura
+JWT_EXPIRES_IN=8h
+JWT_USER_EXPIRES_IN=8h
+
+# Banco de dados
+DATABASE_URL=postgres://user:pass@host:5432/dbname # opcional
+PG_SSL=false
+SQLITE_PATH=./database/dev.db
+
+# SMTP (recuperação de senha)
+SMTP_HOST=smtp.seudominio.com
+SMTP_PORT=587
+SMTP_USER=usuario
+SMTP_PASS=senha
+```
+
+## Rodar localmente (SQLite)
+
+```bash
+npm install
+node scripts/init-sqlite.js
+npm run dev
+```
+
+## Migração (PostgreSQL)
+
+```bash
+npm install
+npm run migrate
+npm start
+```
+
+## Autenticação
+
+A autenticação funciona em duas etapas:
+
+1. **Login** gera um token de usuário (sem loja).
+2. **Selecionar loja** gera um token de usuário + loja ativa.
+
+### Login (token de usuário)
+
+`POST /api/auth/login`
+
+```json
 {
   "email": "admin@admin.com",
   "password": "senha123"
 }
+```
 
 Resposta:
 
+```json
 {
   "ok": true,
+  "token": "JWT_TOKEN_DO_USUARIO",
   "user": {
     "id": "uuid-do-usuario",
     "email": "admin@admin.com",
@@ -35,321 +96,124 @@ Resposta:
     }
   ]
 }
+```
 
-OBS:
-- Nesta etapa NÃO é gerado token
-- O frontend deve listar as lojas disponíveis para o usuário
+### Selecionar loja (token de usuário + loja)
 
+`POST /api/auth/select-store`
 
-------------------------------------------------------------
-SELECIONAR LOJA (ETAPA 2 - GERA TOKEN)
-------------------------------------------------------------
+Headers:
 
-POST /api/auth/select-store
-Body JSON:
+```
+Authorization: Bearer JWT_TOKEN_DO_USUARIO
+```
 
+Body:
+
+```json
 {
-  "user_id": "uuid-do-usuario",
   "loja_id": "uuid-da-loja"
 }
+```
 
 Resposta:
 
+```json
 {
   "ok": true,
   "token": "JWT_COM_USUARIO_E_LOJA",
   "loja": {
     "id": "uuid-da-loja",
-    "name": "Loja Centro"
+    "name": "Loja Centro",
+    "public_key": "chave-publica"
   }
 }
+```
 
-OBS:
-- O token representa USUÁRIO + LOJA ATIVA
-- Para trocar de loja, basta chamar este endpoint novamente
-- Não é necessário novo login
+### Recuperação de senha
 
-O frontend deve armazenar o token e enviar em todas as rotas protegidas:
+- `POST /api/auth/forgot`
+- `POST /api/auth/reset`
 
-Authorization: Bearer <token>
+### Registro de usuário
 
+- `POST /api/auth/register` (use com cuidado em produção)
 
-------------------------------------------------------------
-RECUPERAÇÃO DE SENHA
-------------------------------------------------------------
+## Rotas principais
 
-POST /api/auth/forgot
+> Rotas protegidas exigem `Authorization: Bearer <token>` com token de **usuário + loja**.
 
-POST /api/auth/reset
+### Lojas
 
+Base: `/api/lojas`
 
-------------------------------------------------------------
-PRODUTOS (PAINEL ADMIN / PDV)
-------------------------------------------------------------
+- `POST /` cria loja
+- `GET /` lista lojas do usuário
+- `GET /current` detalhes da loja ativa
+- `PUT /current` atualiza loja ativa
+- `POST /current/regenerate-key` gera nova public key
 
-OBS GERAL:
-- TODAS as rotas de produtos usam JWT
-- A loja é resolvida SEMPRE via token (req.loja)
-- Não é permitido informar loja_id no body
-- Compatível com SQLite (dev) e PostgreSQL (prod)
+Créditos:
 
-------------------------------------------------------------
-CRIAR PRODUTO
-------------------------------------------------------------
+- `GET /:id/credits`
+- `POST /:id/credits/add`
+- `POST /:id/credits/consume`
 
-POST /api/products
+### Configurações da loja
 
-Header:
-Authorization: Bearer <token>
+Base: `/api/store-settings`
 
-Body JSON:
+- `GET /`
+- `PUT /`
 
-{
-  "name": "Pizza Calabresa",
-  "description": "Pizza grande de calabresa",
-  "base_price": 39.90,
-  "image_url": "https://drive.google.com/...",
-  "has_options": true
-}
+### Produtos (admin)
 
-Campos:
-- name (obrigatório)
-- base_price (number)
-- image_url (opcional)
-- has_options:
-  - false → produto simples
-  - true → produto com opções (pizza, lanche customizável)
+Base: `/products`
 
-------------------------------------------------------------
-LISTAR PRODUTOS DA LOJA ATIVA
-------------------------------------------------------------
+- `POST /` cria produto
+- `GET /` lista produtos (query `active=true`, `visible=true`)
+- `GET /:id`
+- `PUT /:id`
+- `DELETE /:id` remove produto
 
-GET /api/products
+Opções de produto:
 
-Header:
-Authorization: Bearer <token>
+- `POST /:productId/options`
+- `GET /:productId/options`
+- `PUT /:productId/options/:optionId`
+- `DELETE /:productId/options/:optionId`
 
-Query Params (opcional):
-- active=true → retorna apenas produtos ativos
+Itens de opção:
 
-------------------------------------------------------------
-OBTER PRODUTO POR ID
-------------------------------------------------------------
+- `POST /options/:optionId/items`
+- `GET /options/:optionId/items`
+- `PUT /options/:optionId/items/:itemId`
+- `DELETE /options/:optionId/items/:itemId`
 
-GET /api/products/{id}
+### Pedidos
 
-Header:
-Authorization: Bearer <token>
+Base: `/api/orders`
 
-OBS:
-- Retorna apenas se o produto pertencer à loja ativa
+Pedido público (sem JWT):
 
-------------------------------------------------------------
-ATUALIZAR PRODUTO
-------------------------------------------------------------
+- `POST /` com `X-LOJA-KEY: <public_key>`
+- Alternativa: `POST /?loja=<public_key>`
 
-PUT /api/products/{id}
+Painel admin (JWT):
 
-Header:
-Authorization: Bearer <token>
+- `GET /` lista pedidos
+- `GET /:id` (id interno ou `external_id`)
+- `PUT /:id/status`
 
-Body (parcial):
+### Cardápio público
 
-{
-  "name": "Pizza Calabresa Especial",
-  "base_price": 42.90,
-  "has_options": true,
-  "is_active": true
-}
+`GET /public/menu/:public_key`
 
-OBS:
-- Atualização parcial via COALESCE
-- Não é possível trocar a loja do produto
+Retorna produtos, opções e faixas de entrega visíveis para a loja.
 
-------------------------------------------------------------
-DESATIVAR PRODUTO (SOFT DELETE)
-------------------------------------------------------------
+## Deploy (Coolify)
 
-DELETE /api/products/{id}
-
-Header:
-Authorization: Bearer <token>
-
-OBS:
-- Apenas marca is_active = false
-- Produto não é removido do banco
-
-
-------------------------------------------------------------
-ITENS DE OPÇÃO DE PRODUTO
-------------------------------------------------------------
-
-OBS GERAL:
-- Todas as rotas abaixo exigem JWT
-- A loja é validada pelo token (não informar loja_id)
-- A remoção é soft delete (is_active = false)
-
-------------------------------------------------------------
-ATUALIZAR ITEM DE OPÇÃO
-------------------------------------------------------------
-
-PUT /api/products/options/{optionId}/items/{itemId}
-
-Header:
-Authorization: Bearer <token>
-
-Body (parcial):
-
-{
-  "name": "Bacon extra",
-  "price": 5.50,
-  "is_active": true,
-  "is_visible": true
-}
-
-OBS:
-- Atualização parcial via COALESCE
-- Só atualiza se a opção pertencer à loja ativa
-
-------------------------------------------------------------
-REMOVER ITEM DE OPÇÃO (SOFT DELETE)
-------------------------------------------------------------
-
-DELETE /api/products/options/{optionId}/items/{itemId}
-
-Header:
-Authorization: Bearer <token>
-
-Resposta:
-
-{
-  "id": "uuid-item",
-  "option_id": "uuid-opcao",
-  "name": "Bacon extra",
-  "price": "5.50",
-  "is_active": false,
-  "is_visible": true
-}
-
-
-------------------------------------------------------------
-PEDIDOS
-------------------------------------------------------------
-
-CRIAR PEDIDO (CLIENTE FINAL - PÚBLICO)
-
-POST /api/orders
-
-Header obrigatório:
-X-LOJA-KEY: chave-publica-da-loja
-
-Body JSON:
-
-{
-  "external_id": "ABC123",
-  "customer_name": "João",
-  "customer_whatsapp": "+5511999000111",
-  "delivery_address": "Rua A, 123",
-  "payment_method": "PIX",
-  "total": 45.50,
-  "notes": "Sem cebola",
-  "items": [
-    { "product_name": "X-Bacon", "quantity": 1, "unit_price": 20.00 },
-    { "product_name": "Refrigerante", "quantity": 1, "unit_price": 5.50 }
-  ]
-}
-
-OBS:
-- Esta rota NÃO usa JWT
-- A loja é identificada via X-LOJA-KEY
-
-
-------------------------------------------------------------
-LISTAR PEDIDOS (PAINEL ADMIN)
-------------------------------------------------------------
-
-GET /api/orders
-
-Header:
-Authorization: Bearer <token>
-
-
-------------------------------------------------------------
-OBTER PEDIDO
-------------------------------------------------------------
-
-GET /api/orders/{id}
-
-{id} pode ser:
-- UUID interno
-- external_id
-
-
-------------------------------------------------------------
-ATUALIZAR STATUS DO PEDIDO
-------------------------------------------------------------
-
-PUT /api/orders/{id}/status
-
-Header:
-Authorization: Bearer <token>
-
-Body:
-
-{
-  "status": "delivered",
-  "payment_status": "paid"
-}
-
-
-------------------------------------------------------------
-CONFIGURAÇÕES DA LOJA
-------------------------------------------------------------
-
-GET /api/store-settings
-PUT /api/store-settings
-
-
-------------------------------------------------------------
-BANCO DE DADOS (DEV x PRODUÇÃO)
-------------------------------------------------------------
-
-DESENVOLVIMENTO:
-- SQLite automático
-- Inicialização:
-  node scripts/init-sqlite.js
-
-PRODUÇÃO:
-- PostgreSQL
-- Ativado quando DATABASE_URL existir
-- Compatível com Coolify
-
-
-------------------------------------------------------------
-RODAR LOCAL
-------------------------------------------------------------
-
-npm install
-node scripts/init-sqlite.js
-npm run dev
-
-
-------------------------------------------------------------
-DEPLOY (COOLIFY)
-------------------------------------------------------------
-
-- Definir DATABASE_URL
-- Definir JWT_SECRET
-- Definir PG_SSL se necessário
-- Porta padrão: 4000
-
-
-------------------------------------------------------------
-PRÓXIMOS PASSOS
-------------------------------------------------------------
-
-1) Product Options (sabores, adicionais, bordas)
-2) Cardápio público
-3) PDV
-4) Integração WhatsApp
-============================================================
+- Definir `DATABASE_URL`
+- Definir `JWT_SECRET`
+- Definir `PG_SSL` se necessário
+- Porta padrão: `4000`
