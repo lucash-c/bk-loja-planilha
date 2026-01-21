@@ -175,9 +175,20 @@ CREATE TABLE IF NOT EXISTS order_items (
 -- ==========================================
 -- PRODUCTS
 -- ==========================================
+CREATE TABLE IF NOT EXISTS categories (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name TEXT NOT NULL,
+    slug TEXT NOT NULL,
+    image_url TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_categories_slug ON categories(slug);
+
 CREATE TABLE IF NOT EXISTS products (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     loja_id UUID NOT NULL REFERENCES lojas(id) ON DELETE CASCADE,
+    category_id UUID REFERENCES categories(id) ON DELETE SET NULL,
     name TEXT NOT NULL,
     description TEXT,
     base_price NUMERIC(10,2) NOT NULL DEFAULT 0,
@@ -187,6 +198,14 @@ CREATE TABLE IF NOT EXISTS products (
     is_visible BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
+
+-- Migração segura para bases existentes
+ALTER TABLE products
+    ADD COLUMN IF NOT EXISTS category_id UUID REFERENCES categories(id) ON DELETE SET NULL;
+
+CREATE INDEX IF NOT EXISTS idx_products_category_id ON products(category_id);
+CREATE INDEX IF NOT EXISTS idx_products_loja_category_created_at
+    ON products(loja_id, category_id, created_at DESC, id DESC);
 
 -- ==========================================
 -- PRODUCT_OPTIONS
