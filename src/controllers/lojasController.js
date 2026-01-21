@@ -172,6 +172,10 @@ async function listLojas(req, res, next) {
 async function getLoja(req, res, next) {
   try {
     const lojaId = req.loja.id;
+    const include = (req.query.include || '')
+      .split(',')
+      .map(value => value.trim())
+      .filter(Boolean);
 
     const result = await db.query(
       `
@@ -186,7 +190,17 @@ async function getLoja(req, res, next) {
       return res.status(404).json({ error: 'Loja não encontrada' });
     }
 
-    res.json(result.rows[0]);
+    const loja = result.rows[0];
+
+    if (include.includes('settings')) {
+      loja.settings = await fetchStoreSettings(lojaId);
+    }
+
+    if (include.includes('credits')) {
+      loja.credits = await fetchStoreCredits(lojaId);
+    }
+
+    res.json(loja);
   } catch (err) {
     next(err);
   }
@@ -285,6 +299,89 @@ async function regeneratePublicKey(req, res, next) {
     res.json({
       ok: true,
       public_key: newKey
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function fetchStoreSettings(lojaId) {
+  const result = await db.query(
+    `
+    SELECT
+      pix_key,
+      pix_qr_image,
+      open_time,
+      close_time,
+      is_open
+    FROM store_settings
+    WHERE loja_id = $1
+    `,
+    [lojaId]
+  );
+
+  if (!result.rows.length) {
+    return {
+      pix_key: null,
+      pix_qr_image: null,
+      open_time: null,
+      close_time: null,
+      is_open: true
+    };
+  }
+
+  return result.rows[0];
+}
+
+async function fetchStoreCredits(lojaId) {
+  const { rows } = await db.query(
+    `
+    SELECT credits
+    FROM user_lojas
+    WHERE loja_id = $1
+      AND role = 'owner'
+    LIMIT 1
+    `,
+    [lojaId]
+  );
+
+  if (!rows.length) {
+    return 0;
+  }
+
+  return Number(rows[0].credits);
+}
+
+/**
+ * GET STORE SUMMARY
+ * Retorna loja + settings + credits
+ */
+async function getLojaSummary(req, res, next) {
+  try {
+    const lojaId = req.loja.id;
+
+    const lojaRes = await db.query(
+      `
+      SELECT *
+      FROM lojas
+      WHERE id = $1
+      `,
+      [lojaId]
+    );
+
+    if (!lojaRes.rows.length) {
+      return res.status(404).json({ error: 'Loja não encontrada' });
+    }
+
+    const [settings, credits] = await Promise.all([
+      fetchStoreSettings(lojaId),
+      fetchStoreCredits(lojaId)
+    ]);
+
+    res.json({
+      loja: lojaRes.rows[0],
+      settings,
+      credits
     });
   } catch (err) {
     next(err);
@@ -463,6 +560,7 @@ module.exports = {
   getLoja,
   updateLoja,
   regeneratePublicKey,
+  getLojaSummary,
   getLojaCredits,
   addLojaCredits,
   consumeLojaCredits

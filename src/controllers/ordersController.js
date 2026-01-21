@@ -184,6 +184,10 @@ async function listOrders(req, res, next) {
   try {
     const lojaId = req.loja.id;
     const q = req.query.q || '';
+    const include = (req.query.include || '')
+      .split(',')
+      .map(value => value.trim())
+      .filter(Boolean);
 
     const { rows } = await db.query(
       `
@@ -201,7 +205,42 @@ async function listOrders(req, res, next) {
       [lojaId, q, `%${q}%`]
     );
 
-    res.json(rows);
+    if (!include.includes('items') || rows.length === 0) {
+      return res.json(rows);
+    }
+
+    const orderIds = rows.map(order => order.id);
+    const placeholders = orderIds.map((_, index) => `$${index + 1}`).join(',');
+
+    const itemsRes = await db.query(
+      `
+      SELECT *
+      FROM order_items
+      WHERE order_id IN (${placeholders})
+      `,
+      orderIds
+    );
+
+    const itemsByOrder = new Map();
+    for (const item of itemsRes.rows) {
+      const normalizedItem = {
+        ...item,
+        options_json: item.options_json
+          ? JSON.parse(item.options_json)
+          : null
+      };
+      if (!itemsByOrder.has(item.order_id)) {
+        itemsByOrder.set(item.order_id, []);
+      }
+      itemsByOrder.get(item.order_id).push(normalizedItem);
+    }
+
+    const ordersWithItems = rows.map(order => ({
+      ...order,
+      items: itemsByOrder.get(order.id) || []
+    }));
+
+    return res.json(ordersWithItems);
   } catch (err) {
     next(err);
   }
