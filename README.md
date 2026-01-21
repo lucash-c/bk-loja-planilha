@@ -150,6 +150,8 @@ Base: `/api/lojas`
 - `POST /` cria loja
 - `GET /` lista lojas do usuário
 - `GET /current` detalhes da loja ativa
+- `GET /current?include=settings,credits` inclui settings e/ou créditos na resposta
+- `GET /current/summary` retorna `{ loja, settings, credits }`
 - `PUT /current` atualiza loja ativa
 - `POST /current/regenerate-key` gera nova public key
 
@@ -179,7 +181,7 @@ Base: `/products`
 Opções de produto:
 
 - `POST /:productId/options`
-- `GET /:productId/options`
+- `GET /:productId/options` (use `?include=items` para retornar itens)
 - `PUT /:productId/options/:optionId`
 - `DELETE /:productId/options/:optionId`
 
@@ -202,6 +204,7 @@ Pedido público (sem JWT):
 Painel admin (JWT):
 
 - `GET /` lista pedidos
+- `GET /?include=items` lista pedidos já com itens
 - `GET /:id` (id interno ou `external_id`)
 - `PUT /:id/status`
 

@@ -253,6 +253,10 @@ async function listProductOptions(req, res) {
     const lojaId = req.loja.id;
     const { productId } = req.params;
     const { visible } = req.query;
+    const include = (req.query.include || '')
+      .split(',')
+      .map(value => value.trim())
+      .filter(Boolean);
 
     let query = `
       SELECT po.*
@@ -268,7 +272,41 @@ async function listProductOptions(req, res) {
     query += ' ORDER BY po.created_at ASC';
 
     const { rows } = await db.query(query, params);
-    return res.json(rows);
+    if (!include.includes('items') || rows.length === 0) {
+      return res.json(rows);
+    }
+
+    const optionIds = rows.map(option => option.id);
+    const placeholders = optionIds.map((_, index) => `$${index + 1}`).join(',');
+    let itemsQuery = `
+      SELECT poi.*
+      FROM product_option_items poi
+      WHERE poi.option_id IN (${placeholders})
+        AND poi.is_active = true
+    `;
+
+    if (visible === 'true') {
+      itemsQuery += ' AND poi.is_visible = true';
+    }
+
+    itemsQuery += ' ORDER BY poi.name ASC';
+
+    const itemsRes = await db.query(itemsQuery, optionIds);
+    const itemsByOption = new Map();
+
+    for (const item of itemsRes.rows) {
+      if (!itemsByOption.has(item.option_id)) {
+        itemsByOption.set(item.option_id, []);
+      }
+      itemsByOption.get(item.option_id).push(item);
+    }
+
+    const optionsWithItems = rows.map(option => ({
+      ...option,
+      items: itemsByOption.get(option.id) || []
+    }));
+
+    return res.json(optionsWithItems);
   } catch (err) {
     console.error('Erro ao listar opções:', err);
     return res.status(500).json({ error: 'Erro interno ao listar opções' });

@@ -14,6 +14,7 @@ const { authenticate } = require('../middleware/authMiddleware');
 router.post('/', authenticate, lojasCtrl.createLoja);
 router.get('/', authenticate, lojasCtrl.listLojas);
 router.get('/current', authenticate, lojasCtrl.getLoja);
+router.get('/current/summary', authenticate, lojasCtrl.getLojaSummary);
 router.put('/current', authenticate, lojasCtrl.updateLoja);
 
 router.post(
