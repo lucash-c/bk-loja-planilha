@@ -106,9 +106,20 @@ CREATE INDEX IF NOT EXISTS idx_order_items_order_id ON order_items(order_id);
 -- ==========================================
 -- PRODUCTS
 -- ==========================================
+CREATE TABLE IF NOT EXISTS categories (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    slug TEXT NOT NULL,
+    image_url TEXT,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_categories_slug ON categories(slug);
+
 CREATE TABLE IF NOT EXISTS products (
     id TEXT PRIMARY KEY,
     loja_id TEXT NOT NULL,
+    category_id TEXT,
 
     name TEXT NOT NULL,
     description TEXT,
@@ -121,10 +132,14 @@ CREATE TABLE IF NOT EXISTS products (
 
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
 
-    FOREIGN KEY (loja_id) REFERENCES lojas(id) ON DELETE CASCADE
+    FOREIGN KEY (loja_id) REFERENCES lojas(id) ON DELETE CASCADE,
+    FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_products_loja_id ON products(loja_id);
+CREATE INDEX IF NOT EXISTS idx_products_category_id ON products(category_id);
+CREATE INDEX IF NOT EXISTS idx_products_loja_category_created_at
+    ON products(loja_id, category_id, created_at DESC, id DESC);
 
 -- ==========================================
 -- PRODUCT_OPTIONS

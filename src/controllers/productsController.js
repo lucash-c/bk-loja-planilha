@@ -15,6 +15,7 @@ async function createProduct(req, res) {
       description,
       base_price,
       image_url,
+      category_id,
       has_options = false,
       is_visible = true
     } = req.body;
@@ -27,6 +28,7 @@ async function createProduct(req, res) {
       `
       INSERT INTO products (
         loja_id,
+        category_id,
         name,
         description,
         base_price,
@@ -34,11 +36,12 @@ async function createProduct(req, res) {
         has_options,
         is_visible
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
       RETURNING *
       `,
       [
         lojaId,
+        category_id || null,
         name,
         description || null,
         base_price || 0,
@@ -116,6 +119,7 @@ async function updateProduct(req, res) {
       description,
       base_price,
       image_url,
+      category_id,
       has_options,
       is_active,
       is_visible
@@ -129,11 +133,12 @@ async function updateProduct(req, res) {
         description = COALESCE($2, description),
         base_price = COALESCE($3, base_price),
         image_url = COALESCE($4, image_url),
-        has_options = COALESCE($5, has_options),
-        is_active = COALESCE($6, is_active),
-        is_visible = COALESCE($7, is_visible)
-      WHERE id = $8
-        AND loja_id = $9
+        category_id = COALESCE($5, category_id),
+        has_options = COALESCE($6, has_options),
+        is_active = COALESCE($7, is_active),
+        is_visible = COALESCE($8, is_visible)
+      WHERE id = $9
+        AND loja_id = $10
       RETURNING *
       `,
       [
@@ -141,6 +146,7 @@ async function updateProduct(req, res) {
         description,
         base_price,
         image_url,
+        category_id,
         has_options,
         is_active,
         is_visible,
