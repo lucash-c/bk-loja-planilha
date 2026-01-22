@@ -1,6 +1,17 @@
 const crypto = require('crypto');
 const db = require('../config/db');
 
+function slugify(value) {
+  return value
+    .toString()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)/g, '');
+}
+
 function encodeCursor(row) {
   return Buffer.from(`${row.created_at}|${row.id}`).toString('base64');
 }
@@ -172,7 +183,85 @@ async function listCategoryProducts(req, res) {
   }
 }
 
+async function createCategory(req, res) {
+  try {
+    const { name, slug, image_url } = req.body;
+
+    if (!name) {
+      return res.status(400).json({ error: 'name é obrigatório' });
+    }
+
+    const finalSlug = slugify(slug || name);
+
+    if (!finalSlug) {
+      return res.status(400).json({ error: 'slug inválido' });
+    }
+
+    const { rows } = await db.query(
+      `
+      INSERT INTO categories (name, slug, image_url)
+      VALUES ($1, $2, $3)
+      RETURNING *
+      `,
+      [name, finalSlug, image_url || null]
+    );
+
+    return res.status(201).json(rows[0]);
+  } catch (err) {
+    if (err && err.code === '23505') {
+      return res.status(409).json({ error: 'slug já está em uso' });
+    }
+    console.error('Erro ao criar categoria:', err);
+    return res.status(500).json({ error: 'Erro interno ao criar categoria' });
+  }
+}
+
+async function deleteCategory(req, res) {
+  try {
+    const { id } = req.params;
+
+    const categoryRes = await db.query(
+      `
+      SELECT *
+      FROM categories
+      WHERE id = $1
+      `,
+      [id]
+    );
+
+    if (!categoryRes.rows.length) {
+      return res.status(404).json({ error: 'Categoria não encontrada' });
+    }
+
+    const deleteProductsRes = await db.query(
+      `
+      DELETE FROM products
+      WHERE category_id = $1
+      `,
+      [id]
+    );
+
+    await db.query(
+      `
+      DELETE FROM categories
+      WHERE id = $1
+      `,
+      [id]
+    );
+
+    return res.json({
+      category: categoryRes.rows[0],
+      deleted_products: deleteProductsRes.rowCount || 0
+    });
+  } catch (err) {
+    console.error('Erro ao excluir categoria:', err);
+    return res.status(500).json({ error: 'Erro interno ao excluir categoria' });
+  }
+}
+
 module.exports = {
   listCategories,
-  listCategoryProducts
+  listCategoryProducts,
+  createCategory,
+  deleteCategory
 };
