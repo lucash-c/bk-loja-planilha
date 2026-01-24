@@ -573,6 +573,121 @@ async function deleteProductOptionItem(req, res) {
   }
 }
 
+/**
+ * ============================
+ * GRUPOS DE OPÇÕES (ASSOCIAÇÃO EM LOTE)
+ * ============================
+ */
+
+async function bulkAttachOptionGroups(req, res) {
+  const lojaId = req.loja.id;
+  const { product_ids: productIds, option_group_id: optionGroupId } = req.body;
+
+  if (!optionGroupId || !Array.isArray(productIds) || productIds.length === 0) {
+    return res.status(400).json({
+      error: 'option_group_id e product_ids são obrigatórios'
+    });
+  }
+
+  const uniqueProductIds = [...new Set(productIds.filter(Boolean))];
+
+  if (uniqueProductIds.length === 0) {
+    return res.status(400).json({ error: 'product_ids inválido' });
+  }
+
+  try {
+    await db.query('BEGIN');
+
+    const optionGroupCheck = await db.query(
+      `
+      SELECT id
+      FROM option_groups
+      WHERE id = $1
+        AND loja_id = $2
+      `,
+      [optionGroupId, lojaId]
+    );
+
+    if (!optionGroupCheck.rows.length) {
+      await db.query('ROLLBACK');
+      return res.status(404).json({ error: 'Grupo de opções não encontrado' });
+    }
+
+    const productPlaceholders = uniqueProductIds
+      .map((_, index) => `$${index + 1}`)
+      .join(',');
+    const productParams = [...uniqueProductIds, lojaId];
+    const productQuery = `
+      SELECT id
+      FROM products
+      WHERE id IN (${productPlaceholders})
+        AND loja_id = $${uniqueProductIds.length + 1}
+    `;
+    const productRes = await db.query(productQuery, productParams);
+    const validProductIds = productRes.rows.map(row => row.id);
+
+    if (!validProductIds.length) {
+      await db.query('ROLLBACK');
+      return res.status(404).json({ error: 'Produtos não encontrados' });
+    }
+
+    const associationPlaceholders = validProductIds
+      .map((_, index) => `$${index + 2}`)
+      .join(',');
+    const existingRes = await db.query(
+      `
+      SELECT product_id
+      FROM product_option_groups
+      WHERE option_group_id = $1
+        AND product_id IN (${associationPlaceholders})
+      `,
+      [optionGroupId, ...validProductIds]
+    );
+
+    const alreadyAssociated = existingRes.rows.map(row => row.product_id);
+    const alreadyAssociatedSet = new Set(alreadyAssociated);
+    const toAttach = validProductIds.filter(
+      productId => !alreadyAssociatedSet.has(productId)
+    );
+
+    let updatedCount = 0;
+
+    if (toAttach.length) {
+      const values = toAttach
+        .map((_, index) => `($${index * 2 + 1}, $${index * 2 + 2})`)
+        .join(',');
+      const insertParams = [];
+      toAttach.forEach(productId => {
+        insertParams.push(productId, optionGroupId);
+      });
+
+      const insertRes = await db.query(
+        `
+        INSERT INTO product_option_groups (product_id, option_group_id)
+        VALUES ${values}
+        ON CONFLICT (product_id, option_group_id) DO NOTHING
+        `,
+        insertParams
+      );
+
+      updatedCount = insertRes.rowCount || 0;
+    }
+
+    await db.query('COMMIT');
+
+    return res.json({
+      updated_count: updatedCount,
+      already_associated: alreadyAssociated
+    });
+  } catch (err) {
+    console.error('Erro ao associar grupos de opções em lote:', err);
+    await db.query('ROLLBACK');
+    return res
+      .status(500)
+      .json({ error: 'Erro interno ao associar grupos de opções' });
+  }
+}
+
 module.exports = {
   createProduct,
   listProducts,
@@ -587,5 +702,6 @@ module.exports = {
   listProductOptionItems,
   createProductOptionItem,
   updateProductOptionItem,
-  deleteProductOptionItem
+  deleteProductOptionItem,
+  bulkAttachOptionGroups
 };

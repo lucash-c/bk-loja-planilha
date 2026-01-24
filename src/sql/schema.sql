@@ -208,6 +208,32 @@ CREATE INDEX IF NOT EXISTS idx_products_loja_category_created_at
     ON products(loja_id, category_id, created_at DESC, id DESC);
 
 -- ==========================================
+-- OPTION_GROUPS
+-- ==========================================
+CREATE TABLE IF NOT EXISTS option_groups (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    loja_id UUID NOT NULL REFERENCES lojas(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_option_groups_loja_id ON option_groups(loja_id);
+
+-- ==========================================
+-- PRODUCT_OPTION_GROUPS
+-- ==========================================
+CREATE TABLE IF NOT EXISTS product_option_groups (
+    product_id UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    option_group_id UUID NOT NULL REFERENCES option_groups(id) ON DELETE CASCADE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    PRIMARY KEY (product_id, option_group_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_product_option_groups_option_group
+    ON product_option_groups(option_group_id);
+
+-- ==========================================
 -- PRODUCT_OPTIONS
 -- ==========================================
 CREATE TABLE IF NOT EXISTS product_options (

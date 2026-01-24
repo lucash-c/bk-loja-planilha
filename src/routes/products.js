@@ -24,6 +24,16 @@ router.put('/:id', authenticate, productsController.updateProduct);
 router.delete('/:id', authenticate, productsController.disableProduct);
 
 /**
+ * ROTAS DE GRUPOS DE OPÇÕES
+ */
+
+router.post(
+  '/option-groups/bulk-attach',
+  authenticate,
+  productsController.bulkAttachOptionGroups
+);
+
+/**
  * ROTAS DE OPÇÕES DE PRODUTO
  */
 

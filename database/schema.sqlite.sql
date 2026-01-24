@@ -142,6 +142,35 @@ CREATE INDEX IF NOT EXISTS idx_products_loja_category_created_at
     ON products(loja_id, category_id, created_at DESC, id DESC);
 
 -- ==========================================
+-- OPTION_GROUPS
+-- ==========================================
+CREATE TABLE IF NOT EXISTS option_groups (
+    id TEXT PRIMARY KEY,
+    loja_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    is_active INTEGER DEFAULT 1,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (loja_id) REFERENCES lojas(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_option_groups_loja_id ON option_groups(loja_id);
+
+-- ==========================================
+-- PRODUCT_OPTION_GROUPS
+-- ==========================================
+CREATE TABLE IF NOT EXISTS product_option_groups (
+    product_id TEXT NOT NULL,
+    option_group_id TEXT NOT NULL,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (product_id, option_group_id),
+    FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
+    FOREIGN KEY (option_group_id) REFERENCES option_groups(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_product_option_groups_option_group
+    ON product_option_groups(option_group_id);
+
+-- ==========================================
 -- PRODUCT_OPTIONS
 -- ==========================================
 CREATE TABLE IF NOT EXISTS product_options (
