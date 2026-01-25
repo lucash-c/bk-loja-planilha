@@ -11,6 +11,7 @@ const publicMenuRoutes = require('./routes/publicMenu');
 const productsRoutes = require('./routes/products');
 const categoriesRoutes = require('./routes/categories');
 const optionGroupsRoutes = require('./routes/optionGroups');
+const deliveryFeesRoutes = require('./routes/deliveryFees');
 const { errorHandler } = require('./middleware/errorHandler');
 
 const app = express();
@@ -39,6 +40,7 @@ app.use('/categories', categoriesRoutes);
 app.use('/option-groups', optionGroupsRoutes);
 app.use('/api/lojas', lojasRoutes);
 app.use('/api/store-settings', storeSettingsRoutes);
+app.use('/api/delivery-fees', deliveryFeesRoutes);
 app.use('/public', publicMenuRoutes);
 
 app.get('/', (req, res) => res.json({ ok: true, version: '1.0' }));

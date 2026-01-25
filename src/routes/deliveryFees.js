@@ -27,11 +27,25 @@ router.post(
   deliveryFeeController.upsertDeliveryFee
 );
 
+// CRIAR ou ATUALIZAR faixas de frete (em lote)
+router.post(
+  '/batch',
+  authenticate,
+  deliveryFeeController.upsertDeliveryFeesBatch
+);
+
 // REMOVER faixa de frete
 router.delete(
   '/:id',
   authenticate,
   deliveryFeeController.deleteDeliveryFee
+);
+
+// REMOVER faixas de frete (em lote)
+router.delete(
+  '/batch',
+  authenticate,
+  deliveryFeeController.deleteDeliveryFeesBatch
 );
 
 module.exports = router;

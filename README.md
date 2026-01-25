@@ -168,6 +168,104 @@ Base: `/api/store-settings`
 - `GET /`
 - `PUT /`
 
+### Faixas de entrega (admin)
+
+Base: `/api/delivery-fees`
+
+Todas as rotas exigem JWT com loja ativa.
+
+- `GET /` lista faixas de entrega da loja
+- `POST /` cria/atualiza uma faixa (upsert por distância)
+- `DELETE /:id` remove uma faixa
+- `POST /batch` cria/atualiza várias faixas de uma só vez
+- `DELETE /batch` remove várias faixas de uma só vez
+
+#### POST `/api/delivery-fees`
+
+Body:
+
+```json
+{
+  "distance_km": 5,
+  "fee": 12.5,
+  "estimated_time_minutes": 45
+}
+```
+
+Resposta:
+
+```json
+{
+  "id": "uuid-faixa",
+  "loja_id": "uuid-loja",
+  "distance_km": 5,
+  "fee": "12.50",
+  "estimated_time_minutes": 45,
+  "created_at": "2024-01-01T12:00:00.000Z"
+}
+```
+
+#### POST `/api/delivery-fees/batch`
+
+Body (lote):
+
+```json
+{
+  "items": [
+    { "distance_km": 3, "fee": 8, "estimated_time_minutes": 30 },
+    { "distance_km": 5, "fee": 12.5, "estimated_time_minutes": 45 },
+    { "distance_km": 10, "fee": 18 }
+  ]
+}
+```
+
+Resposta (faixas atualizadas, ordenadas por distância):
+
+```json
+[
+  {
+    "id": "uuid-faixa-1",
+    "loja_id": "uuid-loja",
+    "distance_km": 3,
+    "fee": "8.00",
+    "estimated_time_minutes": 30,
+    "created_at": "2024-01-01T12:00:00.000Z"
+  },
+  {
+    "id": "uuid-faixa-2",
+    "loja_id": "uuid-loja",
+    "distance_km": 5,
+    "fee": "12.50",
+    "estimated_time_minutes": 45,
+    "created_at": "2024-01-01T12:00:00.000Z"
+  }
+]
+```
+
+#### DELETE `/api/delivery-fees/:id`
+
+Resposta:
+
+```json
+{ "ok": true }
+```
+
+#### DELETE `/api/delivery-fees/batch`
+
+Body:
+
+```json
+{
+  "ids": ["uuid-faixa-1", "uuid-faixa-2"]
+}
+```
+
+Resposta:
+
+```json
+{ "deleted": 2 }
+```
+
 ### Produtos (admin)
 
 Base: `/products`
