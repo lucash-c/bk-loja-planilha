@@ -10,6 +10,7 @@ const storeSettingsRoutes =  require('./routes/storeSettings');
 const publicMenuRoutes = require('./routes/publicMenu');
 const productsRoutes = require('./routes/products');
 const categoriesRoutes = require('./routes/categories');
+const optionGroupsRoutes = require('./routes/optionGroups');
 const { errorHandler } = require('./middleware/errorHandler');
 
 const app = express();
@@ -35,6 +36,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/orders', ordersRoutes);
 app.use('/products', productsRoutes);
 app.use('/categories', categoriesRoutes);
+app.use('/option-groups', optionGroupsRoutes);
 app.use('/api/lojas', lojasRoutes);
 app.use('/api/store-settings', storeSettingsRoutes);
 app.use('/public', publicMenuRoutes);
