@@ -736,6 +736,20 @@ async function bulkAttachOptionGroups(req, res) {
       updatedCount = insertRes.rowCount || 0;
     }
 
+    const updatePlaceholders = validProductIds
+      .map((_, index) => `$${index + 1}`)
+      .join(',');
+    const updateParams = [...validProductIds, lojaId];
+    await db.query(
+      `
+      UPDATE products
+      SET has_options = true
+      WHERE id IN (${updatePlaceholders})
+        AND loja_id = $${validProductIds.length + 1}
+      `,
+      updateParams
+    );
+
     await db.query('COMMIT');
 
     return res.json({
