@@ -214,11 +214,35 @@ CREATE TABLE IF NOT EXISTS option_groups (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     loja_id UUID NOT NULL REFERENCES lojas(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
+    type TEXT NOT NULL DEFAULT 'single',
+    required BOOLEAN DEFAULT FALSE,
+    min_choices INTEGER DEFAULT 0,
+    max_choices INTEGER DEFAULT 1,
     is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
 CREATE INDEX IF NOT EXISTS idx_option_groups_loja_id ON option_groups(loja_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_option_groups_loja_name_unique
+    ON option_groups(loja_id, lower(name));
+
+-- ==========================================
+-- OPTION_GROUP_ITEMS
+-- ==========================================
+CREATE TABLE IF NOT EXISTS option_group_items (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    option_group_id UUID NOT NULL REFERENCES option_groups(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    price NUMERIC(10,2) NOT NULL DEFAULT 0,
+    is_active BOOLEAN DEFAULT TRUE,
+    is_visible BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_option_group_items_group_id
+    ON option_group_items(option_group_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_option_group_items_group_name_unique
+    ON option_group_items(option_group_id, lower(name));
 
 -- ==========================================
 -- PRODUCT_OPTION_GROUPS

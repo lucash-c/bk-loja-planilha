@@ -192,6 +192,98 @@ Itens de opção:
 - `PUT /options/:optionId/items/:itemId`
 - `DELETE /options/:optionId/items/:itemId`
 
+### Grupos de adicionais (admin)
+
+Base: `/option-groups`
+
+- `GET /` lista grupos com seus itens
+- `POST /bulk` cria grupos em lote
+- `PUT /bulk` atualiza grupos em lote
+- `DELETE /bulk` remove grupos em lote
+
+Payload de grupo (criação/atualização):
+
+```json
+[
+  {
+    "id": "uuid-opcional-para-update",
+    "name": "Adicionais",
+    "type": "single",
+    "required": false,
+    "min_choices": 0,
+    "max_choices": 2,
+    "items": [
+      {
+        "id": "uuid-opcional-para-update",
+        "name": "Bacon",
+        "price": 3.5,
+        "is_active": true,
+        "is_visible": true
+      }
+    ]
+  }
+]
+```
+
+Respostas em lote incluem IDs criados/atualizados e erros por registro:
+
+```json
+{
+  "created": [
+    {
+      "index": 0,
+      "id": "uuid-grupo",
+      "item_ids": ["uuid-item-1", "uuid-item-2"]
+    }
+  ],
+  "errors": [
+    {
+      "index": 1,
+      "error": "Já existe um grupo com este nome para a loja"
+    }
+  ]
+}
+```
+
+```json
+{
+  "updated": [
+    {
+      "index": 0,
+      "id": "uuid-grupo",
+      "item_changes": {
+        "created": ["uuid-item-novo"],
+        "updated": ["uuid-item-existente"],
+        "deleted": ["uuid-item-removido"]
+      }
+    }
+  ],
+  "errors": [
+    {
+      "index": 2,
+      "error": "Grupo não encontrado"
+    }
+  ]
+}
+```
+
+```json
+{
+  "deleted": [
+    {
+      "index": 0,
+      "id": "uuid-grupo"
+    }
+  ],
+  "errors": [
+    {
+      "index": 1,
+      "error": "Grupo não encontrado"
+    }
+  ]
+}
+```
+
 ### Pedidos
 
 Base: `/api/orders`
