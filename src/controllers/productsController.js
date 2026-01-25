@@ -257,12 +257,15 @@ async function createProductOption(req, res) {
 async function listProductOptions(req, res) {
   try {
     const lojaId = req.loja.id;
-    const { productId } = req.params;
-    const { visible } = req.query;
-    const include = (req.query.include || '')
-      .split(',')
-      .map(value => value.trim())
-      .filter(Boolean);
+  const { productId } = req.params;
+  const { visible } = req.query;
+  const include = (req.query.include || '')
+    .split(',')
+    .map(value => value.trim())
+    .filter(Boolean);
+  const includeItems = include.includes('items');
+  const includeOptionGroups =
+    include.includes('option_groups') || include.includes('option-groups');
 
     let query = `
       SELECT po.*
@@ -278,41 +281,101 @@ async function listProductOptions(req, res) {
     query += ' ORDER BY po.created_at ASC';
 
     const { rows } = await db.query(query, params);
-    if (!include.includes('items') || rows.length === 0) {
-      return res.json(rows);
-    }
 
-    const optionIds = rows.map(option => option.id);
-    const placeholders = optionIds.map((_, index) => `$${index + 1}`).join(',');
-    let itemsQuery = `
-      SELECT poi.*
-      FROM product_option_items poi
-      WHERE poi.option_id IN (${placeholders})
-        AND poi.is_active = true
-    `;
+    let optionsPayload = rows;
 
-    if (visible === 'true') {
-      itemsQuery += ' AND poi.is_visible = true';
-    }
+    if (includeItems && rows.length) {
+      const optionIds = rows.map(option => option.id);
+      const placeholders = optionIds
+        .map((_, index) => `$${index + 1}`)
+        .join(',');
+      let itemsQuery = `
+        SELECT poi.*
+        FROM product_option_items poi
+        WHERE poi.option_id IN (${placeholders})
+          AND poi.is_active = true
+      `;
 
-    itemsQuery += ' ORDER BY poi.name ASC';
-
-    const itemsRes = await db.query(itemsQuery, optionIds);
-    const itemsByOption = new Map();
-
-    for (const item of itemsRes.rows) {
-      if (!itemsByOption.has(item.option_id)) {
-        itemsByOption.set(item.option_id, []);
+      if (visible === 'true') {
+        itemsQuery += ' AND poi.is_visible = true';
       }
-      itemsByOption.get(item.option_id).push(item);
+
+      itemsQuery += ' ORDER BY poi.name ASC';
+
+      const itemsRes = await db.query(itemsQuery, optionIds);
+      const itemsByOption = new Map();
+
+      for (const item of itemsRes.rows) {
+        if (!itemsByOption.has(item.option_id)) {
+          itemsByOption.set(item.option_id, []);
+        }
+        itemsByOption.get(item.option_id).push(item);
+      }
+
+      optionsPayload = rows.map(option => ({
+        ...option,
+        items: itemsByOption.get(option.id) || []
+      }));
     }
 
-    const optionsWithItems = rows.map(option => ({
-      ...option,
-      items: itemsByOption.get(option.id) || []
-    }));
+    if (!includeOptionGroups) {
+      return res.json(optionsPayload);
+    }
 
-    return res.json(optionsWithItems);
+    const optionGroupsRes = await db.query(
+      `
+      SELECT og.*
+      FROM option_groups og
+      JOIN product_option_groups pog
+        ON pog.option_group_id = og.id
+      WHERE pog.product_id = $1
+        AND og.loja_id = $2
+        AND og.is_active = true
+      ORDER BY og.created_at ASC
+      `,
+      [productId, lojaId]
+    );
+
+    const optionGroupIds = optionGroupsRes.rows.map(group => group.id);
+    let optionGroupsPayload = optionGroupsRes.rows;
+
+    if (optionGroupIds.length) {
+      const groupPlaceholders = optionGroupIds
+        .map((_, index) => `$${index + 1}`)
+        .join(',');
+      let groupItemsQuery = `
+        SELECT ogi.*
+        FROM option_group_items ogi
+        WHERE ogi.option_group_id IN (${groupPlaceholders})
+          AND ogi.is_active = true
+      `;
+
+      if (visible === 'true') {
+        groupItemsQuery += ' AND ogi.is_visible = true';
+      }
+
+      groupItemsQuery += ' ORDER BY ogi.name ASC';
+
+      const groupItemsRes = await db.query(groupItemsQuery, optionGroupIds);
+      const itemsByGroup = new Map();
+
+      for (const item of groupItemsRes.rows) {
+        if (!itemsByGroup.has(item.option_group_id)) {
+          itemsByGroup.set(item.option_group_id, []);
+        }
+        itemsByGroup.get(item.option_group_id).push(item);
+      }
+
+      optionGroupsPayload = optionGroupsRes.rows.map(group => ({
+        ...group,
+        items: itemsByGroup.get(group.id) || []
+      }));
+    }
+
+    return res.json({
+      options: optionsPayload,
+      option_groups: optionGroupsPayload
+    });
   } catch (err) {
     console.error('Erro ao listar opções:', err);
     return res.status(500).json({ error: 'Erro interno ao listar opções' });
