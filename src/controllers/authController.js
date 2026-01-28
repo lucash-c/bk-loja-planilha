@@ -18,7 +18,15 @@ async function register(req, res, next) {
       return res.status(400).json({ errors: errors.array() });
     }
 
-    const { email, password, name } = req.body;
+    const { email, password, name, role } = req.body;
+    const allowedRoles = ['admin', 'owner'];
+    const userRole = role ?? 'owner';
+
+    if (role !== undefined && !allowedRoles.includes(role)) {
+      return res.status(400).json({
+        error: 'Role inválido. Valores permitidos: admin, owner'
+      });
+    }
 
     const exists = await db.query(
       'SELECT id FROM users WHERE email = $1',
@@ -34,10 +42,10 @@ async function register(req, res, next) {
 
     await db.query(
       `
-      INSERT INTO users (id, email, name, password_hash)
-      VALUES ($1, $2, $3, $4)
+      INSERT INTO users (id, email, name, password_hash, role)
+      VALUES ($1, $2, $3, $4, $5)
       `,
-      [id, email, name || null, hash]
+      [id, email, name || null, hash, userRole]
     );
 
     res.json({ ok: true, id });
