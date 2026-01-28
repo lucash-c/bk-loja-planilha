@@ -45,6 +45,13 @@ async function getSettings(req, res, next) {
 async function upsertSettings(req, res, next) {
   try {
     const lojaId = req.loja.id;
+    const userRole = req.userLoja?.role;
+
+    if (userRole !== 'owner') {
+      return res
+        .status(403)
+        .json({ error: 'Apenas o owner pode alterar as configurações' });
+    }
     const {
       pix_key,
       pix_qr_image,

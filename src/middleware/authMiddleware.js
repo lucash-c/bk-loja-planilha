@@ -15,7 +15,26 @@ async function authenticate(req, res, next) {
 
     // 👤 TOKEN DE USUÁRIO (SEM LOJA)
     if (payload.type === 'user') {
-      req.user = { id: payload.sub };
+      const userResult = await db.query(
+        `
+        SELECT id, email, name, role
+        FROM users
+        WHERE id = $1
+        `,
+        [payload.sub]
+      );
+
+      if (!userResult.rows.length) {
+        return res.status(401).json({ error: 'Invalid token' });
+      }
+
+      const user = userResult.rows[0];
+      req.user = {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role
+      };
       req.tokenType = 'user';
       return next();
     }
