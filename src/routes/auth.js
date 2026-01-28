@@ -41,7 +41,11 @@ router.post(
   [
     body('email').isEmail(),
     body('password').isLength({ min: 6 }),
-    body('name').optional().isString()
+    body('name').optional().isString(),
+    body('role')
+      .optional()
+      .isIn(['admin', 'owner'])
+      .withMessage('Role inválido. Valores permitidos: admin, owner')
   ],
   authCtrl.register
 );
