@@ -152,7 +152,7 @@ Base: `/api/lojas`
 - `GET /current` detalhes da loja ativa
 - `GET /current?include=settings,credits` inclui settings e/ou créditos na resposta
 - `GET /current/summary` retorna `{ loja, settings, credits }`
-- `PUT /current` atualiza loja ativa
+- `PUT /current` atualiza cadastro da loja ativa (exceto ativação)
 - `POST /current/regenerate-key` gera nova public key
 
 Créditos:
@@ -161,12 +161,23 @@ Créditos:
 - `POST /:id/credits/add`
 - `POST /:id/credits/consume`
 
+### Lojas (admin do sistema)
+
+Base: `/api/lojas/admin` (exige token de usuário com `role=admin`)
+
+- `GET /` lista todas as lojas
+- `GET /:id` detalhes completos de qualquer loja
+  - `?include=settings,credits` adiciona settings e créditos
+- `PUT /:id` edita qualquer loja (inclui `is_active`)
+- `PATCH /:id/status` ativa/desativa loja (`{ "is_active": true|false }`)
+- `DELETE /:id` exclui loja (remove relações vinculadas)
+
 ### Configurações da loja
 
 Base: `/api/store-settings`
 
 - `GET /`
-- `PUT /`
+- `PUT /` atualiza configurações (somente owner, usado para abrir/fechar a loja via `is_open`)
 
 ### Faixas de entrega (admin)
 

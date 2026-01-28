@@ -236,8 +236,7 @@ async function updateLoja(req, res, next) {
       'facebook',
       'instagram',
       'tiktok',
-      'logo',
-      'is_active'
+      'logo'
     ];
 
     const fields = [];
@@ -267,6 +266,197 @@ async function updateLoja(req, res, next) {
     const result = await db.query(sql, values);
 
     res.json(result.rows[0]);
+  } catch (err) {
+    next(err);
+  }
+}
+
+function buildUpdateFields(allowedFields, payload) {
+  const fields = [];
+  const values = [];
+  let idx = 1;
+
+  for (const field of allowedFields) {
+    if (payload[field] !== undefined) {
+      fields.push(`${field} = $${idx++}`);
+      values.push(payload[field]);
+    }
+  }
+
+  return { fields, values, idx };
+}
+
+async function adminListLojas(req, res, next) {
+  try {
+    const result = await db.query(
+      `
+      SELECT
+        id,
+        name,
+        whatsapp,
+        telefone,
+        responsavel_nome,
+        email,
+        cpf_cnpj,
+        pais,
+        estado,
+        cidade,
+        bairro,
+        rua,
+        numero,
+        cep,
+        facebook,
+        instagram,
+        tiktok,
+        logo,
+        is_active,
+        public_key,
+        created_at
+      FROM lojas
+      ORDER BY created_at DESC
+      `
+    );
+
+    res.json(result.rows);
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function adminGetLoja(req, res, next) {
+  try {
+    const lojaId = req.params.id;
+    const include = (req.query.include || '')
+      .split(',')
+      .map(value => value.trim())
+      .filter(Boolean);
+
+    const result = await db.query(
+      `
+      SELECT *
+      FROM lojas
+      WHERE id = $1
+      `,
+      [lojaId]
+    );
+
+    if (!result.rows.length) {
+      return res.status(404).json({ error: 'Loja não encontrada' });
+    }
+
+    const loja = result.rows[0];
+
+    if (include.includes('settings')) {
+      loja.settings = await fetchStoreSettings(lojaId);
+    }
+
+    if (include.includes('credits')) {
+      loja.credits = await fetchStoreCredits(lojaId);
+    }
+
+    res.json(loja);
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function adminUpdateLoja(req, res, next) {
+  try {
+    const lojaId = req.params.id;
+    const allowedFields = [
+      'name',
+      'whatsapp',
+      'telefone',
+      'responsavel_nome',
+      'email',
+      'cpf_cnpj',
+      'pais',
+      'estado',
+      'cidade',
+      'bairro',
+      'rua',
+      'numero',
+      'cep',
+      'facebook',
+      'instagram',
+      'tiktok',
+      'logo',
+      'is_active'
+    ];
+
+    const { fields, values, idx } = buildUpdateFields(allowedFields, req.body);
+
+    if (!fields.length) {
+      return res.status(400).json({ error: 'Nada para atualizar' });
+    }
+
+    values.push(lojaId);
+
+    const sql = `
+      UPDATE lojas
+      SET ${fields.join(', ')}
+      WHERE id = $${idx}
+      RETURNING *
+    `;
+
+    const result = await db.query(sql, values);
+
+    if (!result.rows.length) {
+      return res.status(404).json({ error: 'Loja não encontrada' });
+    }
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function adminUpdateLojaStatus(req, res, next) {
+  try {
+    const lojaId = req.params.id;
+    const { is_active } = req.body;
+
+    if (typeof is_active !== 'boolean') {
+      return res.status(400).json({ error: 'is_active deve ser booleano' });
+    }
+
+    const result = await db.query(
+      `
+      UPDATE lojas
+      SET is_active = $1
+      WHERE id = $2
+      RETURNING id, is_active
+      `,
+      [is_active, lojaId]
+    );
+
+    if (!result.rows.length) {
+      return res.status(404).json({ error: 'Loja não encontrada' });
+    }
+
+    res.json({ ok: true, loja: result.rows[0] });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function adminDeleteLoja(req, res, next) {
+  try {
+    const lojaId = req.params.id;
+    const result = await db.query(
+      `
+      DELETE FROM lojas
+      WHERE id = $1
+      RETURNING id, name
+      `,
+      [lojaId]
+    );
+
+    if (!result.rows.length) {
+      return res.status(404).json({ error: 'Loja não encontrada' });
+    }
+
+    res.json({ ok: true, loja: result.rows[0] });
   } catch (err) {
     next(err);
   }
@@ -415,10 +605,13 @@ async function getLojaCredits(req, res, next) {
   try {
     const userId = req.user.id;
     const lojaId = req.params.id;
+    const isAdmin = req.user.role === 'admin';
 
-    const access = await ensureUserHasAccess(userId, lojaId);
-    if (!access) {
-      return res.status(403).json({ error: 'Acesso negado à loja' });
+    if (!isAdmin) {
+      const access = await ensureUserHasAccess(userId, lojaId);
+      if (!access) {
+        return res.status(403).json({ error: 'Acesso negado à loja' });
+      }
     }
 
     const { rows } = await db.query(
@@ -450,15 +643,20 @@ async function addLojaCredits(req, res, next) {
   try {
     const userId = req.user.id;
     const lojaId = req.params.id;
+    const isAdmin = req.user.role === 'admin';
 
     const credits = parseCredits(req.body.credits ?? req.body.amount);
     if (credits === null) {
       return res.status(400).json({ error: 'credits deve ser um número maior que zero' });
     }
 
-    const access = await ensureUserHasAccess(userId, lojaId);
-    if (!access || access.role !== 'owner') {
-      return res.status(403).json({ error: 'Apenas o owner pode adicionar créditos' });
+    if (!isAdmin) {
+      const access = await ensureUserHasAccess(userId, lojaId);
+      if (!access || access.role !== 'owner') {
+        return res
+          .status(403)
+          .json({ error: 'Apenas o owner pode adicionar créditos' });
+      }
     }
 
     const { rows } = await db.query(
@@ -496,15 +694,20 @@ async function consumeLojaCredits(req, res, next) {
   try {
     const userId = req.user.id;
     const lojaId = req.params.id;
+    const isAdmin = req.user.role === 'admin';
 
     const credits = parseCredits(req.body.credits ?? req.body.amount);
     if (credits === null) {
       return res.status(400).json({ error: 'credits deve ser um número maior que zero' });
     }
 
-    const access = await ensureUserHasAccess(userId, lojaId);
-    if (!access || access.role !== 'owner') {
-      return res.status(403).json({ error: 'Apenas o owner pode consumir créditos' });
+    if (!isAdmin) {
+      const access = await ensureUserHasAccess(userId, lojaId);
+      if (!access || access.role !== 'owner') {
+        return res
+          .status(403)
+          .json({ error: 'Apenas o owner pode consumir créditos' });
+      }
     }
 
     const { rows } = await db.query(
@@ -563,5 +766,10 @@ module.exports = {
   getLojaSummary,
   getLojaCredits,
   addLojaCredits,
-  consumeLojaCredits
+  consumeLojaCredits,
+  adminListLojas,
+  adminGetLoja,
+  adminUpdateLoja,
+  adminUpdateLojaStatus,
+  adminDeleteLoja
 };
