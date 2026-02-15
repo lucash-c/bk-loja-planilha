@@ -83,7 +83,9 @@ async function run() {
 
   assert.strictEqual(first.statusCode, 200);
   assert.strictEqual(second.statusCode, 200);
-  assert.strictEqual(await getCredits('loja-1'), 90);
+  assert.strictEqual(first.body.debited_credits, 1);
+  assert.strictEqual(second.body.debited_credits, 1);
+  assert.strictEqual(await getCredits('loja-1'), 99);
 
   // clique duplo/concurrency não duplica operação
   await db.query("INSERT INTO orders (id, loja_id, total, status, origin) VALUES ($1,$2,$3,$4,$5)", ['o-2', 'loja-1', 20, 'aguardando aceite', 'cliente']);
@@ -103,7 +105,9 @@ async function run() {
 
   assert.ok([200, 409].includes(r1.statusCode));
   assert.ok([200, 409].includes(r2.statusCode));
-  assert.strictEqual(await getCredits('loja-1'), 70);
+  const successfulConcurrent = r1.statusCode === 200 ? r1 : r2;
+  assert.strictEqual(successfulConcurrent.body.debited_credits, 1);
+  assert.strictEqual(await getCredits('loja-1'), 98);
 
   // falha no meio faz rollback completo (PDV)
   idempotencyCache.resetMemoryStore();
@@ -140,6 +144,8 @@ async function run() {
     }
   });
   assert.strictEqual(pdvOk.statusCode, 201);
+  assert.strictEqual(pdvOk.body.debited_credits, 1);
+  assert.strictEqual(await getCredits('loja-1'), 97);
 
   const pdvMismatch = await invoke(ordersController.createPdvTransactional, {
     headers: { 'x-loja-key': 'loja-key', 'idempotency-key': 'k-mismatch' },
