@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const db = require('../config/db');
+const { CREDIT_COST_PER_ORDER } = require('../config/orderCredits');
 const { v4: uuidv4 } = require('uuid');
 const idempotencyCache = require('../services/idempotencyCache');
 
@@ -294,7 +295,7 @@ async function acceptTransactional(req, res, next) {
         const result = await db.withTransaction(async tx => {
           const orderRes = await tx.query(
             `
-            SELECT id, loja_id, total, status
+            SELECT id, loja_id, status
             FROM orders
             WHERE id = $1
               AND loja_id = $2
@@ -344,7 +345,7 @@ async function acceptTransactional(req, res, next) {
           }
 
           const currentCredits = Number(creditsRes.rows[0].credits);
-          const amount = Number(order.total);
+          const amount = CREDIT_COST_PER_ORDER;
           if (currentCredits < amount) {
             return {
               statusCode: 400,
@@ -500,13 +501,13 @@ async function createPdvTransactional(req, res, next) {
           }
 
           const currentCredits = Number(creditsRes.rows[0].credits);
-          if (currentCredits < normalizedTotal) {
+          if (currentCredits < CREDIT_COST_PER_ORDER) {
             return {
               statusCode: 400,
               payload: {
                 error: 'Créditos insuficientes',
                 credits: currentCredits,
-                required: normalizedTotal
+                required: CREDIT_COST_PER_ORDER
               },
               persistIdempotentResult: false
             };
@@ -598,14 +599,14 @@ async function createPdvTransactional(req, res, next) {
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = $2
             `,
-            [normalizedTotal, creditsRes.rows[0].id]
+            [CREDIT_COST_PER_ORDER, creditsRes.rows[0].id]
           );
 
           if (req.headers['x-test-force-fail'] === '1') {
             throw new Error('forced transactional failure');
           }
 
-          const remainingCredits = currentCredits - normalizedTotal;
+          const remainingCredits = currentCredits - CREDIT_COST_PER_ORDER;
           return {
             statusCode: 201,
             persistIdempotentResult: true,
@@ -621,7 +622,7 @@ async function createPdvTransactional(req, res, next) {
                 total: normalizedTotal,
                 items
               },
-              debited_credits: normalizedTotal,
+              debited_credits: CREDIT_COST_PER_ORDER,
               remaining_credits: Number(remainingCredits.toFixed(2))
             }
           };
