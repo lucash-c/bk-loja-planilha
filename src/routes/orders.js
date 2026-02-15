@@ -33,6 +33,18 @@ router.get(
   ordersCtrl.listOrders
 );
 
+
+router.post(
+  '/:id/accept-transactional',
+  authenticate,
+  ordersCtrl.acceptTransactional
+);
+
+router.post(
+  '/pdv-transactional',
+  ordersCtrl.createPdvTransactional
+);
+
 router.get(
   '/:id',
   authenticate,

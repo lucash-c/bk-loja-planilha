@@ -1,5 +1,111 @@
+const crypto = require('crypto');
 const db = require('../config/db');
 const { v4: uuidv4 } = require('uuid');
+const idempotencyCache = require('../services/idempotencyCache');
+
+function stableStringify(value) {
+  if (Array.isArray(value)) {
+    return `[${value.map(item => stableStringify(item)).join(',')}]`;
+  }
+
+  if (value && typeof value === 'object') {
+    const sortedKeys = Object.keys(value).sort();
+    return `{${sortedKeys.map(key => `${JSON.stringify(key)}:${stableStringify(value[key])}`).join(',')}}`;
+  }
+
+  return JSON.stringify(value);
+}
+
+function buildRequestHash(payload) {
+  return crypto
+    .createHash('sha256')
+    .update(stableStringify(payload || {}))
+    .digest('hex');
+}
+
+function getIdempotencyKey(req) {
+  return req.headers['idempotency-key'] || req.headers['x-idempotency-key'] || null;
+}
+
+function logIdempotency(event, fields) {
+  console.info(`[idempotency:${event}]`, fields);
+}
+
+function normalizeMoney(value) {
+  const num = Number(value);
+  if (!Number.isFinite(num) || num < 0) return null;
+  return Number(num.toFixed(2));
+}
+
+async function handleIdempotency({ req, res, storeId, scope, orderId, execute }) {
+  const idempotencyKey = getIdempotencyKey(req);
+
+  if (!idempotencyKey) {
+    return execute({ idempotencyKey: null, requestHash: null });
+  }
+
+  const requestHash = buildRequestHash(req.body || {});
+  const begin = await idempotencyCache.beginProcessing({
+    storeId,
+    scope,
+    idempotencyKey,
+    requestHash
+  });
+
+  logIdempotency('begin', {
+    idempotencyKey,
+    scope,
+    storeId,
+    orderId,
+    state: begin.state || (begin.acquired ? 'acquired' : 'unknown')
+  });
+
+  if (!begin.acquired) {
+    if (begin.state === 'payload_mismatch') {
+      return res.status(409).json({
+        error: 'Payload diferente para a mesma chave idempotente',
+        idempotencyKey,
+        scope
+      });
+    }
+
+    if (begin.state === 'completed' && begin.response) {
+      return res.status(begin.statusCode || 200).json(begin.response);
+    }
+
+    return res.status(409).json({
+      error: 'Requisição idempotente em processamento',
+      idempotencyKey,
+      scope
+    });
+  }
+
+  const execution = await execute({ idempotencyKey, requestHash });
+
+  if (execution && execution.persistIdempotentResult) {
+    await idempotencyCache.saveCompletedResponse({
+      storeId,
+      scope,
+      idempotencyKey,
+      requestHash,
+      statusCode: execution.statusCode,
+      response: execution.payload
+    });
+
+    logIdempotency('completed', {
+      idempotencyKey,
+      scope,
+      storeId,
+      orderId: execution.orderId || orderId
+    });
+  }
+
+  return res.status(execution.statusCode).json(execution.payload);
+}
+
+function getForUpdateClause() {
+  return db.supportsForUpdate ? 'FOR UPDATE' : '';
+}
 
 /**
  * CREATE ORDER
@@ -38,9 +144,8 @@ async function createOrder(req, res, next) {
 
     const id = uuidv4();
 
-    await db.query('BEGIN');
-    try {
-      await db.query(
+    await db.withTransaction(async tx => {
+      await tx.query(
         `
         INSERT INTO orders (
           id,
@@ -102,7 +207,7 @@ async function createOrder(req, res, next) {
         return `($${baseIndex + 1},$${baseIndex + 2},$${baseIndex + 3},$${baseIndex + 4},$${baseIndex + 5},$${baseIndex + 6},$${baseIndex + 7})`;
       });
 
-      await db.query(
+      await tx.query(
         `
         INSERT INTO order_items (
           order_id,
@@ -118,7 +223,7 @@ async function createOrder(req, res, next) {
         itemValues
       );
 
-      await db.query(
+      await tx.query(
         `
         INSERT INTO order_jobs (
           order_id,
@@ -143,12 +248,7 @@ async function createOrder(req, res, next) {
           })
         ]
       );
-
-      await db.query('COMMIT');
-    } catch (transactionError) {
-      await db.query('ROLLBACK');
-      throw transactionError;
-    }
+    });
 
     res.status(201).json({
       ok: true,
@@ -170,6 +270,362 @@ async function createOrder(req, res, next) {
         status: 'new',
         notes: notes || null,
         items
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function acceptTransactional(req, res, next) {
+  try {
+    const lojaId = req.loja.id;
+    const orderId = req.params.id;
+    const scope = 'accept-transactional';
+
+    return await handleIdempotency({
+      req,
+      res,
+      storeId: lojaId,
+      scope,
+      orderId,
+      execute: async () => {
+        const forUpdate = getForUpdateClause();
+        const result = await db.withTransaction(async tx => {
+          const orderRes = await tx.query(
+            `
+            SELECT id, loja_id, total, status
+            FROM orders
+            WHERE id = $1
+              AND loja_id = $2
+            ${forUpdate}
+            `,
+            [orderId, lojaId]
+          );
+
+          if (!orderRes.rows.length) {
+            return {
+              statusCode: 404,
+              payload: { error: 'Pedido não encontrado' },
+              persistIdempotentResult: false
+            };
+          }
+
+          const order = orderRes.rows[0];
+          if (!['aguardando aceite', 'new'].includes(order.status)) {
+            return {
+              statusCode: 409,
+              payload: {
+                error: 'Pedido não está aguardando aceite',
+                current_status: order.status
+              },
+              persistIdempotentResult: false
+            };
+          }
+
+          const creditsRes = await tx.query(
+            `
+            SELECT id, credits
+            FROM user_lojas
+            WHERE loja_id = $1
+              AND role = 'owner'
+            LIMIT 1
+            ${forUpdate}
+            `,
+            [lojaId]
+          );
+
+          if (!creditsRes.rows.length) {
+            return {
+              statusCode: 404,
+              payload: { error: 'Saldo da loja não encontrado' },
+              persistIdempotentResult: false
+            };
+          }
+
+          const currentCredits = Number(creditsRes.rows[0].credits);
+          const amount = Number(order.total);
+          if (currentCredits < amount) {
+            return {
+              statusCode: 400,
+              payload: {
+                error: 'Créditos insuficientes',
+                credits: currentCredits,
+                required: amount
+              },
+              persistIdempotentResult: false
+            };
+          }
+
+          await tx.query(
+            `
+            UPDATE user_lojas
+            SET credits = credits - $1,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = $2
+            `,
+            [amount, creditsRes.rows[0].id]
+          );
+
+          if (req.headers['x-test-force-fail'] === '1') {
+            throw new Error('forced transactional failure');
+          }
+
+          await tx.query(
+            `
+            UPDATE orders
+            SET status = 'em preparo'
+            WHERE id = $1
+            `,
+            [order.id]
+          );
+
+          const updatedCredits = currentCredits - amount;
+          return {
+            statusCode: 200,
+            persistIdempotentResult: true,
+            orderId: order.id,
+            payload: {
+              ok: true,
+              order_id: order.id,
+              loja_id: lojaId,
+              status: 'em preparo',
+              debited_credits: amount,
+              remaining_credits: Number(updatedCredits.toFixed(2))
+            }
+          };
+        });
+
+        return result;
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function createPdvTransactional(req, res, next) {
+  try {
+    const lojaKey = req.headers['x-loja-key'];
+    if (!lojaKey) {
+      return res.status(400).json({ error: 'X-LOJA-KEY é obrigatório' });
+    }
+
+    const lojaRes = await db.query(
+      `
+      SELECT id, name
+      FROM lojas
+      WHERE public_key = $1
+        AND is_active = TRUE
+      LIMIT 1
+      `,
+      [lojaKey]
+    );
+
+    if (!lojaRes.rows.length) {
+      return res.status(404).json({ error: 'Loja não encontrada ou inativa' });
+    }
+
+    const lojaId = lojaRes.rows[0].id;
+    const scope = 'pdv-transactional';
+
+    return await handleIdempotency({
+      req,
+      res,
+      storeId: lojaId,
+      scope,
+      execute: async () => {
+        const {
+          external_id,
+          customer_name,
+          customer_whatsapp,
+          delivery_address,
+          delivery_fee,
+          delivery_distance_km,
+          delivery_estimated_time_minutes,
+          order_type,
+          payment_method,
+          total,
+          notes,
+          items = []
+        } = req.body;
+
+        if (!Array.isArray(items) || items.length === 0) {
+          return {
+            statusCode: 400,
+            payload: { error: 'Pedido sem itens' },
+            persistIdempotentResult: false
+          };
+        }
+
+        const normalizedTotal = normalizeMoney(total);
+        if (normalizedTotal === null) {
+          return {
+            statusCode: 400,
+            payload: { error: 'Total inválido' },
+            persistIdempotentResult: false
+          };
+        }
+
+        if (order_type && !['entrega', 'retirada', 'local'].includes(order_type)) {
+          return {
+            statusCode: 400,
+            payload: { error: 'Tipo de pedido inválido' },
+            persistIdempotentResult: false
+          };
+        }
+
+        const forUpdate = getForUpdateClause();
+        const orderId = uuidv4();
+
+        return db.withTransaction(async tx => {
+          const creditsRes = await tx.query(
+            `
+            SELECT id, credits
+            FROM user_lojas
+            WHERE loja_id = $1
+              AND role = 'owner'
+            LIMIT 1
+            ${forUpdate}
+            `,
+            [lojaId]
+          );
+
+          if (!creditsRes.rows.length) {
+            return {
+              statusCode: 404,
+              payload: { error: 'Saldo da loja não encontrado' },
+              persistIdempotentResult: false
+            };
+          }
+
+          const currentCredits = Number(creditsRes.rows[0].credits);
+          if (currentCredits < normalizedTotal) {
+            return {
+              statusCode: 400,
+              payload: {
+                error: 'Créditos insuficientes',
+                credits: currentCredits,
+                required: normalizedTotal
+              },
+              persistIdempotentResult: false
+            };
+          }
+
+          await tx.query(
+            `
+            INSERT INTO orders (
+              id,
+              loja_id,
+              external_id,
+              customer_name,
+              customer_whatsapp,
+              order_type,
+              delivery_address,
+              delivery_distance_km,
+              delivery_fee,
+              delivery_estimated_time_minutes,
+              total,
+              payment_method,
+              origin,
+              status,
+              notes
+            )
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+            `,
+            [
+              orderId,
+              lojaId,
+              external_id || null,
+              customer_name || null,
+              customer_whatsapp || null,
+              order_type || 'entrega',
+              delivery_address || null,
+              delivery_distance_km || null,
+              delivery_fee ?? 0,
+              delivery_estimated_time_minutes || null,
+              normalizedTotal,
+              payment_method || null,
+              'pdv',
+              'em preparo',
+              notes || null
+            ]
+          );
+
+          const itemValues = [];
+          const itemPlaceholders = items.map((it, index) => {
+            const quantity = it.quantity || 1;
+            const unitPrice = Number(it.unit_price || 0);
+            const totalPrice = Number((quantity * unitPrice).toFixed(2));
+            const observation =
+              it.observation || it.observacao || it.obs || it.observação || null;
+            const optionsJson = it.options_json ? JSON.stringify(it.options_json) : null;
+            const baseIndex = index * 7;
+
+            itemValues.push(
+              orderId,
+              it.product_name,
+              quantity,
+              unitPrice,
+              totalPrice,
+              observation,
+              optionsJson
+            );
+
+            return `($${baseIndex + 1},$${baseIndex + 2},$${baseIndex + 3},$${baseIndex + 4},$${baseIndex + 5},$${baseIndex + 6},$${baseIndex + 7})`;
+          });
+
+          await tx.query(
+            `
+            INSERT INTO order_items (
+              order_id,
+              product_name,
+              quantity,
+              unit_price,
+              total_price,
+              observation,
+              options_json
+            )
+            VALUES ${itemPlaceholders.join(',')}
+            `,
+            itemValues
+          );
+
+          await tx.query(
+            `
+            UPDATE user_lojas
+            SET credits = credits - $1,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = $2
+            `,
+            [normalizedTotal, creditsRes.rows[0].id]
+          );
+
+          if (req.headers['x-test-force-fail'] === '1') {
+            throw new Error('forced transactional failure');
+          }
+
+          const remainingCredits = currentCredits - normalizedTotal;
+          return {
+            statusCode: 201,
+            persistIdempotentResult: true,
+            orderId,
+            payload: {
+              ok: true,
+              order: {
+                id: orderId,
+                loja_id: lojaId,
+                external_id: external_id || null,
+                status: 'em preparo',
+                origin: 'pdv',
+                total: normalizedTotal,
+                items
+              },
+              debited_credits: normalizedTotal,
+              remaining_credits: Number(remainingCredits.toFixed(2))
+            }
+          };
+        });
       }
     });
   } catch (err) {
@@ -346,6 +802,8 @@ async function updateStatus(req, res, next) {
 
 module.exports = {
   createOrder,
+  acceptTransactional,
+  createPdvTransactional,
   listOrders,
   getOrder,
   updateStatus
