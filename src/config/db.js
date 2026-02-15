@@ -20,7 +20,29 @@ if (process.env.DATABASE_URL) {
   });
 
   db = {
-    query: (text, params) => pool.query(text, params)
+    query: (text, params) => pool.query(text, params),
+    withTransaction: async (callback) => {
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        const tx = {
+          query: (text, params) => client.query(text, params)
+        };
+        const result = await callback(tx);
+        await client.query('COMMIT');
+        return result;
+      } catch (err) {
+        try {
+          await client.query('ROLLBACK');
+        } catch (rollbackError) {
+          console.error('Erro no rollback da transação', rollbackError);
+        }
+        throw err;
+      } finally {
+        client.release();
+      }
+    },
+    supportsForUpdate: true
   };
 
 } else {
@@ -73,7 +95,23 @@ if (process.env.DATABASE_URL) {
         rows: [],
         rowCount: info.changes
       };
-    }
+    },
+    withTransaction: async (callback) => {
+      sqlite.prepare('BEGIN').run();
+      try {
+        const result = await callback(db);
+        sqlite.prepare('COMMIT').run();
+        return result;
+      } catch (err) {
+        try {
+          sqlite.prepare('ROLLBACK').run();
+        } catch (rollbackError) {
+          console.error('Erro no rollback da transação SQLite', rollbackError);
+        }
+        throw err;
+      }
+    },
+    supportsForUpdate: false
   };
 }
 
