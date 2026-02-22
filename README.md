@@ -413,7 +413,50 @@ Painel admin (JWT):
 
 `GET /public/menu/:public_key`
 
-Retorna produtos, opções e faixas de entrega visíveis para a loja.
+Parâmetro opcional:
+- `group_by=none`: desativa o agrupamento por categoria no payload `categories`.
+
+Retorna produtos, opções e faixas de entrega visíveis para a loja, incluindo:
+
+- `products` (legado): lista flat de produtos com opções.
+- `categories` (novo): lista agrupada por `category_id`, no formato:
+
+```json
+[
+  {
+    "id": "uuid-da-categoria",
+    "name": "Bebidas",
+    "slug": "bebidas",
+    "image_url": "https://...",
+    "products": [
+      {
+        "id": "uuid-produto",
+        "name": "Coca-Cola 350ml",
+        "category_id": "uuid-da-categoria",
+        "category": {
+          "id": "uuid-da-categoria",
+          "name": "Bebidas",
+          "slug": "bebidas",
+          "image_url": "https://..."
+        },
+        "options": []
+      }
+    ]
+  },
+  {
+    "id": null,
+    "name": "Sem categoria",
+    "slug": null,
+    "image_url": null,
+    "products": []
+  }
+]
+```
+
+Regras:
+- Loja inexistente: retorna `404`.
+- Categorias sem produtos não aparecem no agrupamento (o agrupamento é gerado a partir dos produtos visíveis).
+- Produtos com `category_id = null` entram no grupo padrão `Sem categoria`.
 
 ## Deploy (Coolify)
 
