@@ -416,6 +416,12 @@ Painel admin (JWT):
 Parâmetro opcional:
 - `group_by=none`: desativa o agrupamento por categoria no payload `categories`.
 
+Configuração opcional de rollout:
+- `PUBLIC_MENU_OPTIONS_SOURCE=hybrid|legacy|group` (default: `hybrid`).
+  - `hybrid`: combina opções legadas (`product_options`) e grupos modernos (`option_groups`).
+  - `legacy`: retorna apenas opções legadas.
+  - `group`: retorna apenas grupos modernos.
+
 Retorna produtos, opções e faixas de entrega visíveis para a loja, incluindo:
 
 - `products` (legado): lista flat de produtos com opções.
@@ -439,7 +445,24 @@ Retorna produtos, opções e faixas de entrega visíveis para a loja, incluindo:
           "slug": "bebidas",
           "image_url": "https://..."
         },
-        "options": []
+        "options": [
+          {
+            "id": "uuid-opcao",
+            "name": "Molhos",
+            "type": "multiple",
+            "required": false,
+            "min_choices": 0,
+            "max_choices": 2,
+            "created_at": "2024-01-01T12:00:00.000Z",
+            "items": [
+              {
+                "id": "uuid-item",
+                "name": "Barbecue",
+                "price": 1.5
+              }
+            ]
+          }
+        ]
       }
     ]
   },
@@ -452,6 +475,21 @@ Retorna produtos, opções e faixas de entrega visíveis para a loja, incluindo:
   }
 ]
 ```
+
+Contrato final de `options`:
+- `id`, `name`, `type`, `required`, `min_choices`, `max_choices`, `created_at`, `items[]`.
+- `items[]` contém `id`, `name`, `price`.
+- Metadado `source` (`legacy|group`) só é exposto se `PUBLIC_MENU_OPTIONS_INCLUDE_SOURCE=true` (debug).
+
+Comportamento quando coexistirem legado + grupos (`hybrid`):
+- A API combina as duas fontes.
+- Faz deduplicação por nome/slug normalizado da opção.
+- Em conflito, prioriza `option_groups` (fonte moderna).
+- Ordenação estável: opções por `created_at` (fallback `name`) e itens por `name`.
+
+Recomendação oficial para novos cadastros:
+- Priorizar `option_groups` para novas opções.
+- Manter legado apenas para compatibilidade/migração gradual.
 
 Regras:
 - Loja inexistente: retorna `404`.
