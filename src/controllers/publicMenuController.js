@@ -8,6 +8,7 @@ const db = require('../config/db');
 async function getPublicMenu(req, res, next) {
   try {
     const { public_key } = req.params;
+    const includeCategories = req.query.group_by !== 'none';
 
     // 1️⃣ resolve loja (dados públicos)
     const lojaRes = await db.query(
@@ -42,12 +43,18 @@ async function getPublicMenu(req, res, next) {
     // 2️⃣ produtos ativos e visíveis
     const productsRes = await db.query(
       `
-      SELECT *
-      FROM products
-      WHERE loja_id = $1
-        AND is_active = TRUE
-        AND is_visible = TRUE
-      ORDER BY created_at ASC
+      SELECT
+        p.*, 
+        c.id AS category_meta_id,
+        c.name AS category_meta_name,
+        c.slug AS category_meta_slug,
+        c.image_url AS category_meta_image_url
+      FROM products p
+      LEFT JOIN categories c ON c.id = p.category_id
+      WHERE p.loja_id = $1
+        AND p.is_active = TRUE
+        AND p.is_visible = TRUE
+      ORDER BY p.created_at ASC
       `,
       [loja.id]
     );
@@ -89,11 +96,47 @@ async function getPublicMenu(req, res, next) {
         });
       }
 
+      const {
+        category_meta_id,
+        category_meta_name,
+        category_meta_slug,
+        category_meta_image_url,
+        ...productData
+      } = product;
+
       products.push({
-        ...product,
+        ...productData,
+        category: productData.category_id
+          ? {
+              id: category_meta_id,
+              name: category_meta_name,
+              slug: category_meta_slug,
+              image_url: category_meta_image_url
+            }
+          : null,
         options
       });
     }
+
+    const categoriesMap = new Map();
+
+    for (const product of products) {
+      const categoryKey = product.category_id ?? 'uncategorized';
+
+      if (!categoriesMap.has(categoryKey)) {
+        categoriesMap.set(categoryKey, {
+          id: product.category?.id ?? null,
+          name: product.category?.name ?? 'Sem categoria',
+          slug: product.category?.slug ?? null,
+          image_url: product.category?.image_url ?? null,
+          products: []
+        });
+      }
+
+      categoriesMap.get(categoryKey).products.push(product);
+    }
+
+    const categories = includeCategories ? Array.from(categoriesMap.values()) : [];
 
     // 5️⃣ faixas de frete públicas da loja
     const deliveryFeesRes = await db.query(
@@ -112,7 +155,8 @@ async function getPublicMenu(req, res, next) {
     res.json({
       loja,
       delivery_fees: deliveryFeesRes.rows,
-      products
+      products,
+      categories
     });
   } catch (err) {
     next(err);
