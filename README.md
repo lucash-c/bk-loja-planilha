@@ -138,6 +138,37 @@ Resposta:
 ### Registro de usuário
 
 - `POST /api/auth/register` (use com cuidado em produção)
+- `POST /api/auth/register-with-store` cria usuário + loja em uma única requisição
+
+Exemplo (Postman / raw JSON):
+
+```json
+{
+  "email": "owner@minhaloja.com",
+  "password": "senha123",
+  "name": "Dono da Loja",
+  "role": "owner",
+  "loja": {
+    "name": "Loja Centro",
+    "whatsapp": "5511999999999",
+    "telefone": "1133334444",
+    "responsavel_nome": "Dono da Loja",
+    "email": "contato@minhaloja.com",
+    "cpf_cnpj": "12345678000199",
+    "pais": "Brasil",
+    "estado": "SP",
+    "cidade": "São Paulo",
+    "bairro": "Centro",
+    "rua": "Rua das Flores",
+    "numero": "123",
+    "cep": "01001000",
+    "facebook": "https://facebook.com/minhaloja",
+    "instagram": "https://instagram.com/minhaloja",
+    "tiktok": "https://tiktok.com/@minhaloja",
+    "logo": "https://cdn.exemplo.com/logo.png"
+  }
+}
+```
 
 ## Rotas principais
 

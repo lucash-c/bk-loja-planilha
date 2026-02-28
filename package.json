@@ -8,7 +8,8 @@
     "migrate": "node scripts/migrate.js",
     "worker:orders": "node src/workers/orderJobsWorker.js",
     "test:integration:orders": "node tests/orders-transactional.integration.test.js",
-    "test:integration:public-menu": "node tests/public-menu.integration.test.js"
+    "test:integration:public-menu": "node tests/public-menu.integration.test.js",
+    "test:integration:register-with-store": "node tests/register-with-store.integration.test.js"
   },
   "dependencies": {
     "bcrypt": "^5.1.0",

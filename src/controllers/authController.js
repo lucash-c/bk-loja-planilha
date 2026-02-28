@@ -4,6 +4,7 @@ const jwt = require('jsonwebtoken');
 const { validationResult } = require('express-validator');
 const { sendMail } = require('../utils/mailer');
 const { v4: uuidv4 } = require('uuid');
+const crypto = require('crypto');
 
 const JWT_SECRET = process.env.JWT_SECRET;
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '8h';
@@ -49,6 +50,166 @@ async function register(req, res, next) {
     );
 
     res.json({ ok: true, id });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * REGISTER WITH STORE
+ * Cria usuário + loja + vínculo owner na mesma requisição
+ */
+async function registerWithStore(req, res, next) {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    const {
+      email,
+      password,
+      name,
+      role,
+      loja
+    } = req.body;
+
+    const allowedRoles = ['admin', 'owner'];
+    const userRole = role ?? 'owner';
+
+    if (role !== undefined && !allowedRoles.includes(role)) {
+      return res.status(400).json({
+        error: 'Role inválido. Valores permitidos: admin, owner'
+      });
+    }
+
+    const userExists = await db.query(
+      'SELECT id FROM users WHERE email = $1',
+      [email]
+    );
+
+    if (userExists.rows.length) {
+      return res.status(400).json({ error: 'E-mail já cadastrado' });
+    }
+
+    const storeEmailExists = await db.query(
+      'SELECT id FROM lojas WHERE email = $1',
+      [loja.email]
+    );
+
+    if (storeEmailExists.rows.length) {
+      return res.status(400).json({ error: 'E-mail da loja já cadastrado' });
+    }
+
+    const hash = await bcrypt.hash(password, 10);
+    const userId = uuidv4();
+    const lojaId = uuidv4();
+    const userLojaId = uuidv4();
+    const publicKey = crypto.randomBytes(16).toString('hex');
+
+    await db.withTransaction(async (tx) => {
+      await tx.query(
+        `
+        INSERT INTO users (id, email, name, password_hash, role)
+        VALUES ($1, $2, $3, $4, $5)
+        `,
+        [userId, email, name || null, hash, userRole]
+      );
+
+      await tx.query(
+        `
+        INSERT INTO lojas (
+          id,
+          public_key,
+          name,
+          whatsapp,
+          telefone,
+          responsavel_nome,
+          email,
+          cpf_cnpj,
+          pais,
+          estado,
+          cidade,
+          bairro,
+          rua,
+          numero,
+          cep,
+          facebook,
+          instagram,
+          tiktok,
+          logo,
+          is_active
+        )
+        VALUES (
+          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
+          $11,$12,$13,$14,$15,$16,$17,$18,$19,TRUE
+        )
+        `,
+        [
+          lojaId,
+          publicKey,
+          loja.name,
+          loja.whatsapp,
+          loja.telefone || null,
+          loja.responsavel_nome,
+          loja.email,
+          loja.cpf_cnpj,
+          loja.pais,
+          loja.estado,
+          loja.cidade,
+          loja.bairro,
+          loja.rua,
+          loja.numero,
+          loja.cep,
+          loja.facebook || null,
+          loja.instagram || null,
+          loja.tiktok || null,
+          loja.logo
+        ]
+      );
+
+      await tx.query(
+        `
+        INSERT INTO user_lojas (
+          id,
+          user_id,
+          loja_id,
+          role,
+          credits
+        )
+        VALUES ($1, $2, $3, 'owner', 0)
+        `,
+        [userLojaId, userId, lojaId]
+      );
+    });
+
+    const token = jwt.sign(
+      {
+        sub: userId,
+        loja_id: lojaId,
+        role: userRole,
+        loja_role: 'owner',
+        type: 'store'
+      },
+      JWT_SECRET,
+      { expiresIn: JWT_EXPIRES_IN }
+    );
+
+    return res.status(201).json({
+      ok: true,
+      token,
+      user: {
+        id: userId,
+        email,
+        name: name || null,
+        role: userRole
+      },
+      loja: {
+        id: lojaId,
+        name: loja.name,
+        public_key: publicKey
+      }
+    });
   } catch (err) {
     next(err);
   }
@@ -289,6 +450,7 @@ async function resetPassword(req, res, next) {
 
 module.exports = {
   register,
+  registerWithStore,
   login,
   selectStore,
   forgotPassword,
