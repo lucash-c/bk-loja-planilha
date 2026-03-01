@@ -1,5 +1,23 @@
 const db = require('../config/db');
 
+async function validateCategoryForStore(categoryId, lojaId) {
+  if (categoryId === undefined || categoryId === null || categoryId === '') {
+    return true;
+  }
+
+  const categoryCheck = await db.query(
+    `
+    SELECT id
+    FROM categories
+    WHERE id = $1
+      AND loja_id = $2
+    `,
+    [categoryId, lojaId]
+  );
+
+  return categoryCheck.rows.length > 0;
+}
+
 /**
  * ============================
  * PRODUTOS
@@ -22,6 +40,12 @@ async function createProduct(req, res) {
 
     if (!name) {
       return res.status(400).json({ error: 'name é obrigatório' });
+    }
+
+    const isCategoryValid = await validateCategoryForStore(category_id, lojaId);
+
+    if (!isCategoryValid) {
+      return res.status(400).json({ error: 'Categoria inválida para esta loja' });
     }
 
     const { rows } = await db.query(
@@ -124,6 +148,12 @@ async function updateProduct(req, res) {
       is_active,
       is_visible
     } = req.body;
+
+    const isCategoryValid = await validateCategoryForStore(category_id, lojaId);
+
+    if (!isCategoryValid) {
+      return res.status(400).json({ error: 'Categoria inválida para esta loja' });
+    }
 
     const { rows } = await db.query(
       `
