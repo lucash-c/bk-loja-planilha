@@ -81,6 +81,7 @@ async function listCategories(req, res) {
         AND p.is_active = TRUE
         AND p.is_visible = TRUE
         AND p.loja_id = $1
+      WHERE c.loja_id = $1
       GROUP BY c.id
       ORDER BY c.name ASC
       `,
@@ -185,6 +186,12 @@ async function listCategoryProducts(req, res) {
 
 async function createCategory(req, res) {
   try {
+    const { lojaId, error, status } = await resolveLojaId(req);
+
+    if (error) {
+      return res.status(status || 400).json({ error });
+    }
+
     const { name, slug, image_url } = req.body;
 
     if (!name) {
@@ -199,11 +206,11 @@ async function createCategory(req, res) {
 
     const { rows } = await db.query(
       `
-      INSERT INTO categories (name, slug, image_url)
-      VALUES ($1, $2, $3)
+      INSERT INTO categories (loja_id, name, slug, image_url)
+      VALUES ($1, $2, $3, $4)
       RETURNING *
       `,
-      [name, finalSlug, image_url || null]
+      [lojaId, name, finalSlug, image_url || null]
     );
 
     return res.status(201).json(rows[0]);
@@ -218,6 +225,12 @@ async function createCategory(req, res) {
 
 async function deleteCategory(req, res) {
   try {
+    const { lojaId, error, status } = await resolveLojaId(req);
+
+    if (error) {
+      return res.status(status || 400).json({ error });
+    }
+
     const { id } = req.params;
 
     const categoryRes = await db.query(
@@ -225,8 +238,9 @@ async function deleteCategory(req, res) {
       SELECT *
       FROM categories
       WHERE id = $1
+        AND loja_id = $2
       `,
-      [id]
+      [id, lojaId]
     );
 
     if (!categoryRes.rows.length) {
@@ -237,16 +251,18 @@ async function deleteCategory(req, res) {
       `
       DELETE FROM products
       WHERE category_id = $1
+        AND loja_id = $2
       `,
-      [id]
+      [id, lojaId]
     );
 
     await db.query(
       `
       DELETE FROM categories
       WHERE id = $1
+        AND loja_id = $2
       `,
-      [id]
+      [id, lojaId]
     );
 
     return res.json({
