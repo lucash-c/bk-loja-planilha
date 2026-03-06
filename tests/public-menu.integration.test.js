@@ -39,6 +39,7 @@ async function invoke(handler, req) {
 
 async function setupSchema() {
   await db.query('CREATE TABLE lojas (id TEXT PRIMARY KEY, public_key TEXT UNIQUE, name TEXT, whatsapp TEXT, logo TEXT, facebook TEXT, instagram TEXT, tiktok TEXT, cep TEXT, rua TEXT, numero TEXT, bairro TEXT, estado TEXT, pais TEXT, is_active INTEGER)');
+  await db.query('CREATE TABLE store_settings (loja_id TEXT UNIQUE, is_open INTEGER)');
   await db.query('CREATE TABLE categories (id TEXT PRIMARY KEY, name TEXT, slug TEXT, image_url TEXT)');
   await db.query('CREATE TABLE products (id TEXT PRIMARY KEY, loja_id TEXT, category_id TEXT, name TEXT, is_active INTEGER, is_visible INTEGER, created_at TEXT)');
   await db.query('CREATE TABLE product_options (id TEXT PRIMARY KEY, product_id TEXT, name TEXT, type TEXT, required INTEGER, min_choices INTEGER, max_choices INTEGER, is_visible INTEGER, created_at TEXT)');
@@ -51,6 +52,7 @@ async function setupSchema() {
 
 async function seedBase() {
   await db.query('INSERT INTO lojas (id, public_key, name, is_active) VALUES ($1,$2,$3,$4)', ['loja-1', 'public-loja', 'Loja Pública', 1]);
+  await db.query('INSERT INTO store_settings (loja_id, is_open) VALUES ($1,$2)', ['loja-1', 0]);
   await db.query('INSERT INTO products (id, loja_id, category_id, name, is_active, is_visible, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7)', ['p-legacy', 'loja-1', null, 'Produto Legado', 1, 1, '2024-01-01T10:00:00Z']);
   await db.query('INSERT INTO products (id, loja_id, category_id, name, is_active, is_visible, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7)', ['p-group', 'loja-1', null, 'Produto Grupo', 1, 1, '2024-01-01T11:00:00Z']);
   await db.query('INSERT INTO products (id, loja_id, category_id, name, is_active, is_visible, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7)', ['p-hybrid', 'loja-1', null, 'Produto Híbrido', 1, 1, '2024-01-01T12:00:00Z']);
@@ -103,6 +105,7 @@ async function run() {
 
   assert.strictEqual(response.statusCode, 200);
   assert.ok(Array.isArray(response.body.products));
+  assert.strictEqual(response.body.loja.is_open, 0);
 
   const legacyProduct = response.body.products.find(product => product.id === 'p-legacy');
   assert.strictEqual(legacyProduct.options.length, 1);
