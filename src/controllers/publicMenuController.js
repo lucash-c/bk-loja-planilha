@@ -218,10 +218,12 @@ async function getPublicMenu(req, res, next) {
         numero,
         bairro,
         estado,
-        pais
-      FROM lojas
-      WHERE public_key = $1
-        AND is_active = TRUE
+        pais,
+        COALESCE(ss.is_open, TRUE) AS is_open
+      FROM lojas l
+      LEFT JOIN store_settings ss ON ss.loja_id = l.id
+      WHERE l.public_key = $1
+        AND l.is_active = TRUE
       `,
       [public_key]
     );
