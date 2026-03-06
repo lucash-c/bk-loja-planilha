@@ -206,19 +206,19 @@ async function getPublicMenu(req, res, next) {
     const lojaRes = await db.query(
       `
       SELECT
-        id,
-        name,
-        whatsapp,
-        logo,
-        facebook,
-        instagram,
-        tiktok,
-        cep,
-        rua,
-        numero,
-        bairro,
-        estado,
-        pais,
+        l.id,
+        l.name,
+        l.whatsapp,
+        l.logo,
+        l.facebook,
+        l.instagram,
+        l.tiktok,
+        l.cep,
+        l.rua,
+        l.numero,
+        l.bairro,
+        l.estado,
+        l.pais,
         COALESCE(ss.is_open, TRUE) AS is_open
       FROM lojas l
       LEFT JOIN store_settings ss ON ss.loja_id = l.id
