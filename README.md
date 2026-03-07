@@ -308,6 +308,50 @@ Resposta:
 { "deleted": 2 }
 ```
 
+
+### Formas de pagamento da loja (PDV/admin)
+
+Base: `/api/store-payment-methods`
+
+Todas as rotas exigem JWT com loja ativa e as operações de escrita exigem `role=owner`.
+
+- `GET /` lista formas de pagamento ordenadas por `sort_order`, `label`
+- `POST /` cria forma de pagamento
+- `PUT /:id` atualiza forma de pagamento
+- `PATCH /:id` atualização parcial
+- `DELETE /:id` desativa logicamente (`is_active=false`)
+
+Exemplo de criação:
+
+```json
+{
+  "code": "dinheiro",
+  "label": "Dinheiro",
+  "sort_order": 2,
+  "requires_change": true,
+  "is_active": true
+}
+```
+
+Exemplo de resposta:
+
+```json
+{
+  "ok": true,
+  "payment_method": {
+    "id": "uuid-metodo",
+    "loja_id": "uuid-loja",
+    "code": "dinheiro",
+    "label": "Dinheiro",
+    "is_active": true,
+    "sort_order": 2,
+    "requires_change": true,
+    "created_at": "2024-01-01T12:00:00.000Z",
+    "updated_at": "2024-01-01T12:00:00.000Z"
+  }
+}
+```
+
 ### Produtos (admin)
 
 Base: `/products`
@@ -440,6 +484,11 @@ Painel admin (JWT):
 - `GET /:id` (id interno ou `external_id`)
 - `PUT /:id/status`
 
+
+Validação de forma de pagamento no pedido:
+- Ao enviar `payment_method` em pedidos públicos (`POST /api/orders`) ou PDV transacional (`POST /api/orders/pdv-transactional`), o valor deve existir como método ativo da loja em `store_payment_methods`.
+- Se o método não estiver ativo/cadastrado, a API retorna `400` com mensagem clara.
+
 ### Cardápio público
 
 `GET /public/menu/:public_key`
@@ -453,9 +502,10 @@ Configuração opcional de rollout:
   - `legacy`: retorna apenas opções legadas.
   - `group`: retorna apenas grupos modernos.
 
-Retorna produtos, opções e faixas de entrega visíveis para a loja, incluindo:
+Retorna produtos, opções, formas de pagamento ativas e faixas de entrega visíveis para a loja, incluindo:
 
 - `products` (legado): lista flat de produtos com opções.
+- `payment_methods`: métodos ativos para checkout/PDV com `code`, `label`, `requires_change`, `sort_order`.
 - `categories` (novo): lista agrupada por `category_id`, no formato:
 
 ```json
@@ -505,6 +555,23 @@ Retorna produtos, opções e faixas de entrega visíveis para a loja, incluindo:
     "products": []
   }
 ]
+```
+
+
+Exemplo resumido do payload:
+
+```json
+{
+  "loja": { "id": "uuid-loja", "name": "Loja Centro" },
+  "payment_methods": [
+    { "code": "pix", "label": "PIX", "requires_change": false, "sort_order": 1 },
+    { "code": "dinheiro", "label": "Dinheiro", "requires_change": true, "sort_order": 2 }
+  ],
+  "delivery_fees": [
+    { "distance_km": 5, "fee": 12.5, "estimated_time_minutes": 45 }
+  ],
+  "products": []
+}
 ```
 
 Contrato final de `options`:

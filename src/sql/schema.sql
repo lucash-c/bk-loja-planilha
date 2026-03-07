@@ -91,6 +91,25 @@ CREATE TABLE IF NOT EXISTS store_delivery_fees (
 CREATE INDEX IF NOT EXISTS idx_delivery_fees_loja ON store_delivery_fees(loja_id);
 
 -- ==========================================
+-- STORE_PAYMENT_METHODS (FORMAS DE PAGAMENTO)
+-- ==========================================
+CREATE TABLE IF NOT EXISTS store_payment_methods (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    loja_id UUID NOT NULL REFERENCES lojas(id) ON DELETE CASCADE,
+    code TEXT NOT NULL,
+    label TEXT NOT NULL,
+    is_active BOOLEAN DEFAULT TRUE,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    requires_change BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    UNIQUE (loja_id, code)
+);
+
+CREATE INDEX IF NOT EXISTS idx_store_payment_methods_loja
+    ON store_payment_methods(loja_id);
+
+-- ==========================================
 -- ORDERS
 -- ==========================================
 CREATE TABLE IF NOT EXISTS orders (

@@ -63,6 +63,25 @@ CREATE TABLE IF NOT EXISTS store_settings (
 );
 
 -- ==========================================
+-- STORE_PAYMENT_METHODS (FORMAS DE PAGAMENTO)
+-- ==========================================
+CREATE TABLE IF NOT EXISTS store_payment_methods (
+    id TEXT PRIMARY KEY,
+    loja_id TEXT NOT NULL,
+    code TEXT NOT NULL,
+    label TEXT NOT NULL,
+    is_active INTEGER DEFAULT 1,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    requires_change INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (loja_id, code),
+    FOREIGN KEY (loja_id) REFERENCES lojas(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_store_payment_methods_loja_id ON store_payment_methods(loja_id);
+
+-- ==========================================
 -- ORDERS
 -- ==========================================
 CREATE TABLE IF NOT EXISTS orders (

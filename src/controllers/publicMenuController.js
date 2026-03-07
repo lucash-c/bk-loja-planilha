@@ -314,6 +314,21 @@ async function getPublicMenu(req, res, next) {
       [loja.id]
     );
 
+    const paymentMethodsRes = await db.query(
+      `
+      SELECT
+        code,
+        label,
+        requires_change,
+        sort_order
+      FROM store_payment_methods
+      WHERE loja_id = $1
+        AND is_active = TRUE
+      ORDER BY sort_order ASC, label ASC
+      `,
+      [loja.id]
+    );
+
     const includeSourceMetadata = process.env.PUBLIC_MENU_OPTIONS_INCLUDE_SOURCE === 'true';
     const responseProducts = includeSourceMetadata
       ? products
@@ -325,6 +340,7 @@ async function getPublicMenu(req, res, next) {
     res.json({
       loja,
       delivery_fees: deliveryFeesRes.rows,
+      payment_methods: paymentMethodsRes.rows,
       products: responseProducts,
       categories: includeCategories
         ? categories.map(category => ({
