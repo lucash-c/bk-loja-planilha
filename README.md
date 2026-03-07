@@ -218,6 +218,7 @@ Todas as rotas exigem JWT com loja ativa.
 
 - `GET /` lista faixas de entrega da loja
 - `POST /` cria/atualiza uma faixa (upsert por distância)
+  - `distance_km` aceita decimal (ex.: `2.5`)
 - `DELETE /:id` remove uma faixa
 - `POST /batch` cria/atualiza várias faixas de uma só vez
 - `DELETE /batch` remove várias faixas de uma só vez

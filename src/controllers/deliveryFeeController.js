@@ -1,5 +1,27 @@
 const db = require('../config/db');
 
+function parseNonNegativeNumber(value, fieldName, index = null) {
+  const parsed = Number(value);
+
+  if (!Number.isFinite(parsed)) {
+    throw new Error(
+      index === null
+        ? `${fieldName} deve ser um número válido`
+        : `${fieldName} deve ser um número válido (index ${index})`
+    );
+  }
+
+  if (parsed < 0) {
+    throw new Error(
+      index === null
+        ? 'Valores não podem ser negativos'
+        : `Valores não podem ser negativos (index ${index})`
+    );
+  }
+
+  return parsed;
+}
+
 /**
  * ============================
  * LISTAR FRETES DA LOJA
@@ -42,10 +64,14 @@ async function upsertDeliveryFee(req, res, next) {
       });
     }
 
-    if (distance_km < 0 || fee < 0) {
-      return res.status(400).json({
-        error: 'Valores não podem ser negativos'
-      });
+    let parsedDistance;
+    let parsedFee;
+
+    try {
+      parsedDistance = parseNonNegativeNumber(distance_km, 'distance_km');
+      parsedFee = parseNonNegativeNumber(fee, 'fee');
+    } catch (validationError) {
+      return res.status(400).json({ error: validationError.message });
     }
 
     const { rows } = await db.query(
@@ -65,8 +91,8 @@ async function upsertDeliveryFee(req, res, next) {
       `,
       [
         lojaId,
-        Number(distance_km),
-        Number(fee),
+        parsedDistance,
+        parsedFee,
         estimated_time_minutes !== undefined
           ? Number(estimated_time_minutes)
           : null
@@ -135,15 +161,14 @@ async function upsertDeliveryFeesBatch(req, res, next) {
         throw new Error(`distance_km e fee são obrigatórios (index ${index})`);
       }
 
-      if (distance_km < 0 || fee < 0) {
-        throw new Error(`Valores não podem ser negativos (index ${index})`);
-      }
+      const parsedDistance = parseNonNegativeNumber(distance_km, 'distance_km', index);
+      const parsedFee = parseNonNegativeNumber(fee, 'fee', index);
 
       const baseIndex = params.length + 1;
       params.push(
         lojaId,
-        Number(distance_km),
-        Number(fee),
+        parsedDistance,
+        parsedFee,
         estimated_time_minutes !== undefined
           ? Number(estimated_time_minutes)
           : null
@@ -188,7 +213,7 @@ async function upsertDeliveryFeesBatch(req, res, next) {
 
     res.json(rows);
   } catch (err) {
-    if (err.message?.includes('index')) {
+    if (err.message?.includes('index') || err.message?.includes('deve ser um número válido')) {
       return res.status(400).json({ error: err.message });
     }
     next(err);
