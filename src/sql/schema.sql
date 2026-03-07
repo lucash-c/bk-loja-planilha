@@ -81,7 +81,7 @@ CREATE TABLE IF NOT EXISTS store_settings (
 CREATE TABLE IF NOT EXISTS store_delivery_fees (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     loja_id UUID NOT NULL REFERENCES lojas(id) ON DELETE CASCADE,
-    distance_km INTEGER NOT NULL CHECK (distance_km >= 0),
+    distance_km NUMERIC(10,2) NOT NULL CHECK (distance_km >= 0),
     fee NUMERIC(10,2) NOT NULL DEFAULT 0,
     estimated_time_minutes INTEGER,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
@@ -120,7 +120,7 @@ CREATE TABLE IF NOT EXISTS orders (
     customer_whatsapp TEXT,
     order_type TEXT NOT NULL DEFAULT 'entrega' CHECK (order_type IN ('entrega', 'retirada', 'local')),
     delivery_address TEXT,
-    delivery_distance_km INTEGER,
+    delivery_distance_km NUMERIC(10,2),
     delivery_estimated_time_minutes INTEGER,
     delivery_fee NUMERIC(10,2) NOT NULL DEFAULT 0,
     total NUMERIC(10,2) NOT NULL DEFAULT 0,
