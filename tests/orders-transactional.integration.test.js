@@ -16,6 +16,7 @@ async function setupSchema() {
   await db.query('CREATE TABLE user_lojas (id TEXT PRIMARY KEY, user_id TEXT, loja_id TEXT, role TEXT, credits NUMERIC, updated_at TEXT)');
   await db.query('CREATE TABLE orders (id TEXT PRIMARY KEY, loja_id TEXT, external_id TEXT, customer_name TEXT, customer_whatsapp TEXT, order_type TEXT, delivery_address TEXT, delivery_distance_km INTEGER, delivery_estimated_time_minutes INTEGER, delivery_fee NUMERIC, total NUMERIC, payment_method TEXT, origin TEXT, payment_status TEXT, status TEXT, notes TEXT, created_at TEXT)');
   await db.query('CREATE TABLE order_items (id TEXT PRIMARY KEY, order_id TEXT, product_name TEXT, quantity INTEGER, unit_price NUMERIC, total_price NUMERIC, observation TEXT, options_json TEXT, created_at TEXT)');
+  await db.query('CREATE TABLE store_payment_methods (id TEXT PRIMARY KEY, loja_id TEXT, code TEXT, label TEXT, is_active INTEGER)');
 }
 
 function createRes() {
@@ -156,6 +157,33 @@ async function run() {
     }
   });
   assert.strictEqual(pdvMismatch.statusCode, 409);
+
+
+  // método de pagamento inválido deve falhar
+  const invalidPaymentRes = await invoke(ordersController.createPdvTransactional, {
+    headers: { 'x-loja-key': 'loja-key', 'idempotency-key': 'k-payment-invalid' },
+    body: {
+      external_id: 'pdv-invalid-payment',
+      total: 10,
+      payment_method: 'pix',
+      items: [{ product_name: 'X', quantity: 1, unit_price: 10 }]
+    }
+  });
+  assert.strictEqual(invalidPaymentRes.statusCode, 400);
+  assert.match(invalidPaymentRes.body.error, /não está ativa/);
+
+  await db.query('INSERT INTO store_payment_methods (id, loja_id, code, label, is_active) VALUES ($1,$2,$3,$4,$5)', ['pm-1', 'loja-1', 'pix', 'PIX', 1]);
+  const validPaymentRes = await invoke(ordersController.createPdvTransactional, {
+    headers: { 'x-loja-key': 'loja-key', 'idempotency-key': 'k-payment-valid' },
+    body: {
+      external_id: 'pdv-valid-payment',
+      total: 10,
+      payment_method: 'pix',
+      items: [{ product_name: 'X', quantity: 1, unit_price: 10 }]
+    }
+  });
+  assert.strictEqual(validPaymentRes.statusCode, 201);
+  assert.strictEqual(await getCredits('loja-1'), 96);
 
   console.log('All transactional integration tests passed');
 }

@@ -48,6 +48,7 @@ async function setupSchema() {
   await db.query('CREATE TABLE product_option_groups (product_id TEXT, option_group_id TEXT, created_at TEXT)');
   await db.query('CREATE TABLE option_group_items (id TEXT PRIMARY KEY, option_group_id TEXT, name TEXT, price NUMERIC, is_active INTEGER, is_visible INTEGER, created_at TEXT)');
   await db.query('CREATE TABLE store_delivery_fees (loja_id TEXT, distance_km NUMERIC, fee NUMERIC, estimated_time_minutes INTEGER)');
+  await db.query('CREATE TABLE store_payment_methods (id TEXT PRIMARY KEY, loja_id TEXT, code TEXT, label TEXT, is_active INTEGER, sort_order INTEGER, requires_change INTEGER)');
 }
 
 async function seedBase() {
@@ -95,6 +96,10 @@ async function run() {
   await seedGroupOnly();
   await seedHybrid();
 
+  await db.query('INSERT INTO store_payment_methods (id, loja_id, code, label, is_active, sort_order, requires_change) VALUES ($1,$2,$3,$4,$5,$6,$7)', ['pm-1', 'loja-1', 'pix', 'PIX', 1, 1, 0]);
+  await db.query('INSERT INTO store_payment_methods (id, loja_id, code, label, is_active, sort_order, requires_change) VALUES ($1,$2,$3,$4,$5,$6,$7)', ['pm-2', 'loja-1', 'dinheiro', 'Dinheiro', 1, 2, 1]);
+  await db.query('INSERT INTO store_payment_methods (id, loja_id, code, label, is_active, sort_order, requires_change) VALUES ($1,$2,$3,$4,$5,$6,$7)', ['pm-3', 'loja-1', 'credito', 'Cartão de Crédito', 0, 3, 0]);
+
   process.env.PUBLIC_MENU_OPTIONS_SOURCE = 'hybrid';
   delete process.env.PUBLIC_MENU_OPTIONS_INCLUDE_SOURCE;
 
@@ -106,6 +111,12 @@ async function run() {
   assert.strictEqual(response.statusCode, 200);
   assert.ok(Array.isArray(response.body.products));
   assert.strictEqual(response.body.loja.is_open, 0);
+
+  assert.ok(Array.isArray(response.body.payment_methods));
+  assert.deepStrictEqual(response.body.payment_methods, [
+    { code: 'pix', label: 'PIX', requires_change: 0, sort_order: 1 },
+    { code: 'dinheiro', label: 'Dinheiro', requires_change: 1, sort_order: 2 }
+  ]);
 
   const legacyProduct = response.body.products.find(product => product.id === 'p-legacy');
   assert.strictEqual(legacyProduct.options.length, 1);

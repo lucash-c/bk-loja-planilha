@@ -38,6 +38,30 @@ function normalizeMoney(value) {
   return Number(num.toFixed(2));
 }
 
+async function validateStorePaymentMethod({ lojaId, paymentMethod, tx = db }) {
+  if (!paymentMethod) return null;
+
+  const code = String(paymentMethod).trim().toLowerCase();
+
+  const paymentMethodRes = await tx.query(
+    `
+    SELECT id
+    FROM store_payment_methods
+    WHERE loja_id = $1
+      AND code = $2
+      AND is_active = TRUE
+    LIMIT 1
+    `,
+    [lojaId, code]
+  );
+
+  if (!paymentMethodRes.rows.length) {
+    return `Forma de pagamento "${code}" não está ativa para esta loja`;
+  }
+
+  return null;
+}
+
 async function handleIdempotency({ req, res, storeId, scope, orderId, execute }) {
   const idempotencyKey = getIdempotencyKey(req);
 
@@ -141,6 +165,14 @@ async function createOrder(req, res, next) {
 
     if (order_type && !['entrega', 'retirada', 'local'].includes(order_type)) {
       return res.status(400).json({ error: 'Tipo de pedido inválido' });
+    }
+
+    const paymentMethodError = await validateStorePaymentMethod({
+      lojaId,
+      paymentMethod: payment_method
+    });
+    if (paymentMethodError) {
+      return res.status(400).json({ error: paymentMethodError });
     }
 
     const id = uuidv4();
@@ -472,6 +504,18 @@ async function createPdvTransactional(req, res, next) {
           return {
             statusCode: 400,
             payload: { error: 'Tipo de pedido inválido' },
+            persistIdempotentResult: false
+          };
+        }
+
+        const paymentMethodError = await validateStorePaymentMethod({
+          lojaId,
+          paymentMethod: payment_method
+        });
+        if (paymentMethodError) {
+          return {
+            statusCode: 400,
+            payload: { error: paymentMethodError },
             persistIdempotentResult: false
           };
         }
