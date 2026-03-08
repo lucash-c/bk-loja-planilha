@@ -7,14 +7,17 @@ WORKDIR /app
 # ---- 2) Copiar apenas arquivos essenciais ----
 COPY package*.json ./
 
-# ---- 3) Instalar dependências ----
+# ---- 3) Instalar utilitários do sistema ----
+RUN apk add --no-cache postgresql-client
+
+# ---- 4) Instalar dependências ----
 RUN npm install --omit=dev
 
-# ---- 4) Copiar o restante do projeto ----
+# ---- 5) Copiar o restante do projeto ----
 COPY . .
 
-# ---- 5) Expor porta usada pelo Express ----
+# ---- 6) Expor porta usada pelo Express ----
 EXPOSE 4000
 
-# ---- 6) Subir servidor ----
+# ---- 7) Subir servidor ----
 CMD ["node", "src/index.js"]
