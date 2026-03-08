@@ -1,4 +1,6 @@
 require('dotenv').config();
+const fs = require('fs');
+const path = require('path');
 const express = require('express');
 const helmet = require('helmet');
 const cors = require('cors');
@@ -14,6 +16,12 @@ const optionGroupsRoutes = require('./routes/optionGroups');
 const deliveryFeesRoutes = require('./routes/deliveryFees');
 const storePaymentMethodsRoutes = require('./routes/storePaymentMethods');
 const { errorHandler } = require('./middleware/errorHandler');
+const {
+  getActiveRelease,
+  getReleaseMetaPath,
+  getReleasesDir,
+  readReleaseMeta
+} = require('./config/frontendReleaseResolver');
 
 function createApp() {
   const app = express();
@@ -29,6 +37,51 @@ function createApp() {
   });
   app.use(limiter);
 
+  const releasesDir = getReleasesDir();
+
+  app.get('/release-meta.json', (req, res) => {
+    const releaseMetaPath = getReleaseMetaPath();
+    if (!fs.existsSync(releaseMetaPath)) {
+      return res.status(404).json({ error: 'release-meta.json not found' });
+    }
+
+    res.set('Cache-Control', 'no-store, must-revalidate');
+    return res.sendFile(releaseMetaPath);
+  });
+
+  app.use(
+    '/releases',
+    express.static(releasesDir, {
+      index: false,
+      fallthrough: true,
+      setHeaders: (res, filePath) => {
+        if (filePath.endsWith(`${path.sep}index.html`)) {
+          res.setHeader('Cache-Control', 'no-store, must-revalidate');
+          return;
+        }
+
+        const normalized = filePath.split(path.sep).join('/');
+        if (normalized.includes('/assets/')) {
+          res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        }
+      }
+    })
+  );
+
+  app.get('/releases/:releaseId', (req, res) => res.redirect(302, `/releases/${req.params.releaseId}/`));
+
+  app.get('/releases/:releaseId/*', (req, res, next) => {
+    const releaseId = req.params.releaseId;
+    const releaseIndexPath = path.join(releasesDir, releaseId, 'index.html');
+
+    if (!fs.existsSync(releaseIndexPath)) {
+      return next();
+    }
+
+    res.set('Cache-Control', 'no-store, must-revalidate');
+    return res.sendFile(releaseIndexPath);
+  });
+
   app.use('/api/auth', authRoutes);
   app.use('/api/orders', ordersRoutes);
   app.use('/products', productsRoutes);
@@ -40,7 +93,14 @@ function createApp() {
   app.use('/api/store-payment-methods', storePaymentMethodsRoutes);
   app.use('/public', publicMenuRoutes);
 
-  app.get('/', (req, res) => res.json({ ok: true, version: '1.0' }));
+  app.get('/', (req, res) => {
+    const activeRelease = getActiveRelease();
+    if (!activeRelease) {
+      return res.status(503).json({ error: 'active release unavailable' });
+    }
+
+    return res.redirect(302, `/releases/${activeRelease}/`);
+  });
 
   app.use(errorHandler);
 
@@ -50,7 +110,13 @@ function createApp() {
 if (require.main === module) {
   const app = createApp();
   const port = process.env.PORT || 4000;
-  app.listen(port, () => console.log(`Server listening on ${port}`));
+  app.listen(port, () => {
+    const activeRelease = getActiveRelease();
+    const releaseText = activeRelease ? `active release ${activeRelease}` : 'active release unavailable';
+    const meta = readReleaseMeta();
+    const releaseMetaState = meta ? 'release-meta loaded' : 'release-meta not found';
+    console.log(`Server listening on ${port} (${releaseText}; ${releaseMetaState})`);
+  });
 }
 
 module.exports = { createApp };
