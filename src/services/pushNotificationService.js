@@ -255,8 +255,18 @@ async function processOrderPushJob(job) {
   const payload = parsePayload(job.payload);
   const sanitizedOrder = payload.payload;
   const orderId = payload.order_id || job.order_id;
-  const lojaId = payload.loja_id || job.loja_id;
+  const lojaId = job.loja_id;
   const eventType = payload.event_type;
+
+  if (payload.loja_id && payload.loja_id !== job.loja_id) {
+    console.warn('[push-notification:job_store_mismatch]', {
+      order_id: orderId,
+      payload_loja_id: payload.loja_id,
+      job_loja_id: job.loja_id,
+      event_type: eventType
+    });
+    throw new Error('Inconsistência entre payload.loja_id e job.loja_id');
+  }
 
   if (!sanitizedOrder?.order_id || !eventType || !lojaId || !orderId) {
     return;
