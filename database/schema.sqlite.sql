@@ -254,3 +254,44 @@ CREATE TABLE IF NOT EXISTS sessions (
 
 CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token);
+
+
+-- ==========================================
+-- PDV_PUSH_SUBSCRIPTIONS
+-- ==========================================
+CREATE TABLE IF NOT EXISTS pdv_push_subscriptions (
+    id TEXT PRIMARY KEY,
+    loja_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    endpoint TEXT NOT NULL,
+    p256dh TEXT NOT NULL,
+    auth TEXT NOT NULL,
+    enabled INTEGER DEFAULT 1,
+    last_seen_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(loja_id, endpoint),
+    FOREIGN KEY (loja_id) REFERENCES lojas(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_pdv_push_subscriptions_loja_enabled
+    ON pdv_push_subscriptions(loja_id, enabled);
+
+-- ==========================================
+-- ORDER_PUSH_DELIVERIES
+-- ==========================================
+CREATE TABLE IF NOT EXISTS order_push_deliveries (
+    id TEXT PRIMARY KEY,
+    order_id TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    subscription_id TEXT NOT NULL,
+    status TEXT DEFAULT 'sent',
+    provider_status_code INTEGER,
+    error_message TEXT,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(order_id, event_type, subscription_id),
+    FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
+    FOREIGN KEY (subscription_id) REFERENCES pdv_push_subscriptions(id) ON DELETE CASCADE
+);

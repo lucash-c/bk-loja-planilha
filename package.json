@@ -13,7 +13,8 @@
     "test:integration:store-payment-methods": "node tests/store-payment-methods.integration.test.js",
     "test:integration:orders-realtime": "node tests/orders-realtime.integration.test.js",
     "test:integration:release-routing": "node tests/release-routing.integration.test.js",
-    "smoke:release-routing": "bash scripts/smoke-release-routing.sh"
+    "smoke:release-routing": "bash scripts/smoke-release-routing.sh",
+    "test:integration:pdv-push": "node tests/pdv-push.integration.test.js"
   },
   "dependencies": {
     "bcrypt": "^5.1.0",
@@ -28,7 +29,8 @@
     "nodemailer": "^6.9.4",
     "pg": "^8.11.0",
     "sqlite3": "^5.1.7",
-    "uuid": "^9.0.0"
+    "uuid": "^9.0.0",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "nodemon": "^2.0.22"

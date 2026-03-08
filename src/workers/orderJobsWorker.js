@@ -1,4 +1,5 @@
 const db = require('../config/db');
+const { processOrderPushJob } = require('../services/pushNotificationService');
 
 const POLL_INTERVAL_MS = Number(
   process.env.ORDER_JOBS_POLL_INTERVAL_MS || 5000
@@ -166,6 +167,10 @@ async function handleJob(job) {
 
     if (actions.integrate_erp) {
       await integrateWithErp(context);
+    }
+
+    if (job.job_type === 'order_push_notification') {
+      await processOrderPushJob(job);
     }
 
     await db.query(

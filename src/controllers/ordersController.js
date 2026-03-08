@@ -4,6 +4,7 @@ const { CREDIT_COST_PER_ORDER } = require('../config/orderCredits');
 const { v4: uuidv4 } = require('uuid');
 const idempotencyCache = require('../services/idempotencyCache');
 const { EVENT_VERSION, ordersRealtimeService } = require('../services/ordersRealtimeService');
+const { sanitizeOrderPayload, enqueueOrderPushJob } = require('../services/pushNotificationService');
 
 function stableStringify(value) {
   if (Array.isArray(value)) {
@@ -163,6 +164,16 @@ async function publishOrderEvent({ type, orderId, lojaId, fallbackOrder }) {
     type,
     storeId: lojaId,
     order
+  });
+
+  const sanitizedPayload = sanitizeOrderPayload(order);
+  if (!sanitizedPayload) return;
+
+  await enqueueOrderPushJob({
+    orderId: order.id,
+    lojaId,
+    eventType: type,
+    payload: sanitizedPayload
   });
 }
 
