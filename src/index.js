@@ -15,6 +15,7 @@ const categoriesRoutes = require('./routes/categories');
 const optionGroupsRoutes = require('./routes/optionGroups');
 const deliveryFeesRoutes = require('./routes/deliveryFees');
 const storePaymentMethodsRoutes = require('./routes/storePaymentMethods');
+const pdvPushSubscriptionsRoutes = require('./routes/pdvPushSubscriptions');
 const { errorHandler } = require('./middleware/errorHandler');
 const {
   getActiveRelease,
@@ -112,6 +113,7 @@ function createApp() {
   app.use('/api/store-settings', storeSettingsRoutes);
   app.use('/api/delivery-fees', deliveryFeesRoutes);
   app.use('/api/store-payment-methods', storePaymentMethodsRoutes);
+  app.use('/api/pdv', pdvPushSubscriptionsRoutes);
   app.use('/public', publicMenuRoutes);
 
   app.get('/', (req, res) => {
