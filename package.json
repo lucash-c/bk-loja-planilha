@@ -11,7 +11,9 @@
     "test:integration:public-menu": "node tests/public-menu.integration.test.js",
     "test:integration:register-with-store": "node tests/register-with-store.integration.test.js",
     "test:integration:store-payment-methods": "node tests/store-payment-methods.integration.test.js",
-    "test:integration:orders-realtime": "node tests/orders-realtime.integration.test.js"
+    "test:integration:orders-realtime": "node tests/orders-realtime.integration.test.js",
+    "test:integration:release-routing": "node tests/release-routing.integration.test.js",
+    "smoke:release-routing": "bash scripts/smoke-release-routing.sh"
   },
   "dependencies": {
     "bcrypt": "^5.1.0",
