@@ -70,10 +70,14 @@ CREATE TABLE IF NOT EXISTS store_settings (
     pix_qr_image TEXT,
     open_time VARCHAR(10),
     close_time VARCHAR(10),
+    orders_realtime_enabled BOOLEAN DEFAULT FALSE,
     is_open BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
+
+ALTER TABLE store_settings
+    ADD COLUMN IF NOT EXISTS orders_realtime_enabled BOOLEAN DEFAULT FALSE;
 
 -- ==========================================
 -- STORE_DELIVERY_FEES (FRETE POR DISTÂNCIA)
