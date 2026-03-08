@@ -33,6 +33,12 @@ router.get(
   ordersCtrl.listOrders
 );
 
+router.get(
+  '/stream',
+  authenticate,
+  ordersCtrl.streamOrders
+);
+
 
 router.post(
   '/:id/accept-transactional',

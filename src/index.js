@@ -6,7 +6,7 @@ const rateLimit = require('express-rate-limit');
 const authRoutes = require('./routes/auth');
 const ordersRoutes = require('./routes/orders');
 const lojasRoutes = require('./routes/lojas');
-const storeSettingsRoutes =  require('./routes/storeSettings');
+const storeSettingsRoutes = require('./routes/storeSettings');
 const publicMenuRoutes = require('./routes/publicMenu');
 const productsRoutes = require('./routes/products');
 const categoriesRoutes = require('./routes/categories');
@@ -15,40 +15,42 @@ const deliveryFeesRoutes = require('./routes/deliveryFees');
 const storePaymentMethodsRoutes = require('./routes/storePaymentMethods');
 const { errorHandler } = require('./middleware/errorHandler');
 
-const app = express();
+function createApp() {
+  const app = express();
 
-// 🔴 IMPORTANTE PARA COOLIFY / NGINX / PROXY
-app.set('trust proxy', 1);
+  app.set('trust proxy', 1);
+  app.use(helmet());
+  app.use(express.json());
+  app.use(cors({ origin: '*' }));
 
-app.use(helmet());
-app.use(express.json());
+  const limiter = rateLimit({
+    windowMs: 1 * 60 * 1000,
+    max: 120
+  });
+  app.use(limiter);
 
-const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || 'http://localhost:8080';
-//app.use(cors({ origin: FRONTEND_ORIGIN, credentials: true }));
-app.use(cors({ origin: "*" }));
+  app.use('/api/auth', authRoutes);
+  app.use('/api/orders', ordersRoutes);
+  app.use('/products', productsRoutes);
+  app.use('/categories', categoriesRoutes);
+  app.use('/option-groups', optionGroupsRoutes);
+  app.use('/api/lojas', lojasRoutes);
+  app.use('/api/store-settings', storeSettingsRoutes);
+  app.use('/api/delivery-fees', deliveryFeesRoutes);
+  app.use('/api/store-payment-methods', storePaymentMethodsRoutes);
+  app.use('/public', publicMenuRoutes);
 
+  app.get('/', (req, res) => res.json({ ok: true, version: '1.0' }));
 
-const limiter = rateLimit({
-  windowMs: 1 * 60 * 1000,
-  max: 120
-});
-app.use(limiter);
+  app.use(errorHandler);
 
-app.use('/api/auth', authRoutes);
-app.use('/api/orders', ordersRoutes);
-app.use('/products', productsRoutes);
-app.use('/categories', categoriesRoutes);
-app.use('/option-groups', optionGroupsRoutes);
-app.use('/api/lojas', lojasRoutes);
-app.use('/api/store-settings', storeSettingsRoutes);
-app.use('/api/delivery-fees', deliveryFeesRoutes);
-app.use('/api/store-payment-methods', storePaymentMethodsRoutes);
-app.use('/public', publicMenuRoutes);
+  return app;
+}
 
-app.get('/', (req, res) => res.json({ ok: true, version: '1.0' }));
+if (require.main === module) {
+  const app = createApp();
+  const port = process.env.PORT || 4000;
+  app.listen(port, () => console.log(`Server listening on ${port}`));
+}
 
-// error handler
-app.use(errorHandler);
-
-const port = process.env.PORT || 4000;
-app.listen(port, () => console.log(`Server listening on ${port}`));
+module.exports = { createApp };

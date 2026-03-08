@@ -3,6 +3,7 @@ const db = require('../config/db');
 const { CREDIT_COST_PER_ORDER } = require('../config/orderCredits');
 const { v4: uuidv4 } = require('uuid');
 const idempotencyCache = require('../services/idempotencyCache');
+const { EVENT_VERSION, ordersRealtimeService } = require('../services/ordersRealtimeService');
 
 function stableStringify(value) {
   if (Array.isArray(value)) {
@@ -62,11 +63,15 @@ async function validateStorePaymentMethod({ lojaId, paymentMethod, tx = db }) {
   return null;
 }
 
-async function handleIdempotency({ req, res, storeId, scope, orderId, execute }) {
+async function handleIdempotency({ req, res, storeId, scope, orderId, execute, onCompleted }) {
   const idempotencyKey = getIdempotencyKey(req);
 
   if (!idempotencyKey) {
-    return execute({ idempotencyKey: null, requestHash: null });
+    const execution = await execute({ idempotencyKey: null, requestHash: null });
+    if (onCompleted) {
+      await onCompleted(execution);
+    }
+    return res.status(execution.statusCode).json(execution.payload);
   }
 
   const requestHash = buildRequestHash(req.body || {});
@@ -107,6 +112,10 @@ async function handleIdempotency({ req, res, storeId, scope, orderId, execute })
 
   const execution = await execute({ idempotencyKey, requestHash });
 
+  if (onCompleted) {
+    await onCompleted(execution);
+  }
+
   if (execution && execution.persistIdempotentResult) {
     await idempotencyCache.saveCompletedResponse({
       storeId,
@@ -130,6 +139,56 @@ async function handleIdempotency({ req, res, storeId, scope, orderId, execute })
 
 function getForUpdateClause() {
   return db.supportsForUpdate ? 'FOR UPDATE' : '';
+}
+
+async function publishOrderEvent({ type, orderId, lojaId, fallbackOrder }) {
+  let order = fallbackOrder;
+  if (!order && orderId) {
+    const result = await db.query(
+      `
+      SELECT id, loja_id, customer_name, customer_whatsapp, status, total, created_at
+      FROM orders
+      WHERE id = $1
+        AND loja_id = $2
+      LIMIT 1
+      `,
+      [orderId, lojaId]
+    );
+    order = result.rows[0] || null;
+  }
+
+  if (!order) return;
+
+  ordersRealtimeService.publish({
+    type,
+    storeId: lojaId,
+    order
+  });
+}
+
+async function isRealtimeEnabledForStore(lojaId) {
+  const globalFlag = process.env.ORDERS_REALTIME_ENABLED;
+  if (globalFlag === 'false') return false;
+
+  try {
+    const result = await db.query(
+      `
+      SELECT orders_realtime_enabled
+      FROM store_settings
+      WHERE loja_id = $1
+      LIMIT 1
+      `,
+      [lojaId]
+    );
+
+    if (!result.rows.length) {
+      return globalFlag === 'true';
+    }
+
+    return Boolean(result.rows[0].orders_realtime_enabled);
+  } catch (err) {
+    return globalFlag === 'true';
+  }
 }
 
 /**
@@ -305,6 +364,12 @@ async function createOrder(req, res, next) {
         items
       }
     });
+
+    await publishOrderEvent({
+      type: 'order.created',
+      orderId: id,
+      lojaId
+    });
   } catch (err) {
     next(err);
   }
@@ -322,6 +387,15 @@ async function acceptTransactional(req, res, next) {
       storeId: lojaId,
       scope,
       orderId,
+      onCompleted: async execution => {
+        if (execution?.statusCode < 300 && execution.eventOrder) {
+          await publishOrderEvent({
+            type: 'order.updated',
+            lojaId,
+            fallbackOrder: execution.eventOrder
+          });
+        }
+      },
       execute: async () => {
         const forUpdate = getForUpdateClause();
         const result = await db.withTransaction(async tx => {
@@ -414,10 +488,21 @@ async function acceptTransactional(req, res, next) {
           );
 
           const updatedCredits = currentCredits - amount;
+          const updatedOrderRes = await tx.query(
+            `
+            SELECT id, loja_id, customer_name, customer_whatsapp, status, total, created_at
+            FROM orders
+            WHERE id = $1
+            LIMIT 1
+            `,
+            [order.id]
+          );
+
           return {
             statusCode: 200,
             persistIdempotentResult: true,
             orderId: order.id,
+            eventOrder: updatedOrderRes.rows[0] || null,
             payload: {
               ok: true,
               order_id: order.id,
@@ -467,6 +552,15 @@ async function createPdvTransactional(req, res, next) {
       res,
       storeId: lojaId,
       scope,
+      onCompleted: async execution => {
+        if (execution?.statusCode < 300 && execution.eventOrder) {
+          await publishOrderEvent({
+            type: 'order.created',
+            lojaId,
+            fallbackOrder: execution.eventOrder
+          });
+        }
+      },
       execute: async () => {
         const {
           external_id,
@@ -655,6 +749,15 @@ async function createPdvTransactional(req, res, next) {
             statusCode: 201,
             persistIdempotentResult: true,
             orderId,
+            eventOrder: {
+              id: orderId,
+              loja_id: lojaId,
+              customer_name: customer_name || null,
+              customer_whatsapp: customer_whatsapp || null,
+              status: 'em preparo',
+              total: normalizedTotal,
+              created_at: new Date().toISOString()
+            },
             payload: {
               ok: true,
               order: {
@@ -685,10 +788,15 @@ async function listOrders(req, res, next) {
   try {
     const lojaId = req.loja.id;
     const q = req.query.q || '';
+    const likeOperator = db.supportsForUpdate ? 'ILIKE' : 'LIKE';
     const include = (req.query.include || '')
       .split(',')
       .map(value => value.trim())
       .filter(Boolean);
+
+    const likeValue = `%${q}%`;
+    const usesDuplicatedPlaceholder = db.supportsForUpdate;
+    const customerLikePlaceholder = usesDuplicatedPlaceholder ? '$3' : '$4';
 
     const { rows } = await db.query(
       `
@@ -697,13 +805,15 @@ async function listOrders(req, res, next) {
       WHERE loja_id = $1
         AND (
           $2 = '' OR
-          external_id ILIKE $3 OR
-          customer_name ILIKE $3
+          external_id ${likeOperator} $3 OR
+          customer_name ${likeOperator} ${customerLikePlaceholder}
         )
       ORDER BY created_at DESC
       LIMIT 200
       `,
-      [lojaId, q, `%${q}%`]
+      usesDuplicatedPlaceholder
+        ? [lojaId, q, likeValue]
+        : [lojaId, q, likeValue, likeValue]
     );
 
     if (!include.includes('items') || rows.length === 0) {
@@ -839,9 +949,53 @@ async function updateStatus(req, res, next) {
       [lojaId, id, id]
     );
 
-    res.json(updated.rows[0]);
+    const updatedOrder = updated.rows[0];
+    res.json(updatedOrder);
+
+    if (updatedOrder) {
+      await publishOrderEvent({
+        type: 'order.updated',
+        lojaId,
+        fallbackOrder: updatedOrder
+      });
+    }
   } catch (err) {
     next(err);
+  }
+}
+
+async function streamOrders(req, res, next) {
+  try {
+    if (!req.loja?.id || req.tokenType !== 'store') {
+      ordersRealtimeService.markAuthError();
+      return res.status(403).json({ error: 'Access denied for this store' });
+    }
+
+    const enabled = await isRealtimeEnabledForStore(req.loja.id);
+    if (!enabled) {
+      return res.status(503).json({
+        error: 'Realtime de pedidos desabilitado para esta loja',
+        fallback: 'GET /api/orders'
+      });
+    }
+
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders?.();
+
+    ordersRealtimeService.registerConnection({
+      req,
+      res,
+      userId: req.user.id,
+      storeId: req.loja.id,
+      lastEventId: req.headers['last-event-id'] || null
+    });
+
+    return undefined;
+  } catch (err) {
+    return next(err);
   }
 }
 
@@ -851,5 +1005,7 @@ module.exports = {
   createPdvTransactional,
   listOrders,
   getOrder,
-  updateStatus
+  updateStatus,
+  streamOrders,
+  EVENT_VERSION
 };
