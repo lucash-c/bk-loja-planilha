@@ -23,6 +23,30 @@ const {
   readReleaseMeta
 } = require('./config/frontendReleaseResolver');
 
+function hasFileExtension(urlPath) {
+  const lastSegment = urlPath.split('/').pop() || '';
+  return lastSegment.includes('.');
+}
+
+function rewriteIndexReleasePrefix(html, releaseId) {
+  return html.replace(/\/releases\/[^/]+\//g, `/releases/${releaseId}/`);
+}
+
+function sendReleaseIndex({ releasesDir, releaseId, res, next }) {
+  const releaseIndexPath = path.join(releasesDir, releaseId, 'index.html');
+
+  if (!fs.existsSync(releaseIndexPath)) {
+    return next();
+  }
+
+  const rawHtml = fs.readFileSync(releaseIndexPath, 'utf8');
+  const html = rewriteIndexReleasePrefix(rawHtml, releaseId);
+
+  res.set('Cache-Control', 'no-store, must-revalidate');
+  res.type('html');
+  return res.send(html);
+}
+
 function createApp() {
   const app = express();
 
@@ -49,17 +73,20 @@ function createApp() {
     return res.sendFile(releaseMetaPath);
   });
 
+  app.get('/releases/:releaseId', (req, res) => res.redirect(302, `/releases/${req.params.releaseId}/`));
+  app.get('/releases/:releaseId/', (req, res, next) =>
+    sendReleaseIndex({ releasesDir, releaseId: req.params.releaseId, res, next })
+  );
+  app.get('/releases/:releaseId/index.html', (req, res, next) =>
+    sendReleaseIndex({ releasesDir, releaseId: req.params.releaseId, res, next })
+  );
+
   app.use(
     '/releases',
     express.static(releasesDir, {
       index: false,
       fallthrough: true,
       setHeaders: (res, filePath) => {
-        if (filePath.endsWith(`${path.sep}index.html`)) {
-          res.setHeader('Cache-Control', 'no-store, must-revalidate');
-          return;
-        }
-
         const normalized = filePath.split(path.sep).join('/');
         if (normalized.includes('/assets/')) {
           res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
@@ -68,18 +95,12 @@ function createApp() {
     })
   );
 
-  app.get('/releases/:releaseId', (req, res) => res.redirect(302, `/releases/${req.params.releaseId}/`));
-
   app.get('/releases/:releaseId/*', (req, res, next) => {
-    const releaseId = req.params.releaseId;
-    const releaseIndexPath = path.join(releasesDir, releaseId, 'index.html');
-
-    if (!fs.existsSync(releaseIndexPath)) {
+    if (hasFileExtension(req.path)) {
       return next();
     }
 
-    res.set('Cache-Control', 'no-store, must-revalidate');
-    return res.sendFile(releaseIndexPath);
+    return sendReleaseIndex({ releasesDir, releaseId: req.params.releaseId, res, next });
   });
 
   app.use('/api/auth', authRoutes);
