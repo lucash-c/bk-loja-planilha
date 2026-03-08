@@ -281,6 +281,26 @@ async function run() {
   const subRow = await db.query('SELECT loja_id FROM pdv_push_subscriptions WHERE id = $1', [deliverySub]);
   assert.strictEqual(subRow.rows[0].loja_id, 'loja-a', 'deve manter isolamento entre lojas');
 
+  const mismatchJob = {
+    ...updateJob,
+    payload: JSON.stringify({
+      ...JSON.parse(updateJob.payload),
+      loja_id: 'loja-b'
+    })
+  };
+
+  await assert.rejects(
+    () => processOrderPushJob(mismatchJob),
+    /Inconsistência entre payload\.loja_id e job\.loja_id/,
+    'deve abortar quando payload.loja_id diverge de job.loja_id'
+  );
+
+  const mismatchDeliveries = await db.query(
+    'SELECT * FROM order_push_deliveries WHERE order_id = $1 AND event_type = $2',
+    [orderId, 'order.updated']
+  );
+  assert.strictEqual(mismatchDeliveries.rows.length, 1, 'não deve enviar para outra loja quando loja_id diverge');
+
   sendMode = '410';
   await processOrderPushJob(pushJobs.rows[0]);
   const revoked = await db.query('SELECT enabled FROM pdv_push_subscriptions WHERE id = $1', [subBody.id]);
