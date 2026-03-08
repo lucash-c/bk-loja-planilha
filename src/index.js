@@ -50,11 +50,31 @@ function sendReleaseIndex({ releasesDir, releaseId, res, next }) {
 
 function createApp() {
   const app = express();
+  const corsAllowedOrigins = String(process.env.CORS_ALLOWED_ORIGINS || process.env.CORS_ORIGIN || '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+
+  const corsOptionsDelegate = (req, callback) => {
+    const requestOrigin = req.header('Origin');
+
+    if (!requestOrigin) {
+      return callback(null, { origin: false });
+    }
+
+    if (corsAllowedOrigins.length === 0) {
+      return callback(null, { origin: requestOrigin, credentials: true });
+    }
+
+    const isAllowed = corsAllowedOrigins.includes(requestOrigin);
+    return callback(null, { origin: isAllowed ? requestOrigin : false, credentials: true });
+  };
 
   app.set('trust proxy', 1);
   app.use(helmet());
   app.use(express.json());
-  app.use(cors({ origin: '*' }));
+  app.use(cors(corsOptionsDelegate));
+  app.options('*', cors(corsOptionsDelegate));
 
   const limiter = rateLimit({
     windowMs: 1 * 60 * 1000,
