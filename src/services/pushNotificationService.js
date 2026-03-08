@@ -26,9 +26,9 @@ function getWebPushClient() {
 function ensureVapidConfigured() {
   if (vapidConfigured) return;
 
-  const publicKey = process.env.WEB_PUSH_VAPID_PUBLIC_KEY;
-  const privateKey = process.env.WEB_PUSH_VAPID_PRIVATE_KEY;
-  const subject = process.env.WEB_PUSH_SUBJECT;
+  const publicKey = process.env.VAPID_PUBLIC_KEY || process.env.WEB_PUSH_VAPID_PUBLIC_KEY;
+  const privateKey = process.env.VAPID_PRIVATE_KEY || process.env.WEB_PUSH_VAPID_PRIVATE_KEY;
+  const subject = process.env.WEB_PUSH_SUBJECT || process.env.VAPID_SUBJECT;
 
   if (!publicKey || !privateKey || !subject) {
     console.warn('[push-notification:disabled]', {
