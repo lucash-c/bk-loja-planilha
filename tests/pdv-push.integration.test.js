@@ -9,16 +9,19 @@ const tempDbPath = path.join(os.tmpdir(), `pdv-push-${Date.now()}.db`);
 process.env.SQLITE_PATH = tempDbPath;
 delete process.env.DATABASE_URL;
 process.env.JWT_SECRET = 'test-secret';
-process.env.WEB_PUSH_VAPID_PUBLIC_KEY = 'test-public';
-process.env.WEB_PUSH_VAPID_PRIVATE_KEY = 'test-private';
+process.env.VAPID_PUBLIC_KEY = 'test-public';
+process.env.VAPID_PRIVATE_KEY = 'test-private';
 process.env.WEB_PUSH_SUBJECT = 'mailto:test@example.com';
 
 let sendMode = 'success';
+let vapidDetailsCalls = [];
 const originalLoad = Module._load;
 Module._load = function patchedLoad(request, parent, isMain) {
   if (request === 'web-push') {
     return {
-      setVapidDetails: () => {},
+      setVapidDetails: (subject, publicKey, privateKey) => {
+        vapidDetailsCalls.push({ subject, publicKey, privateKey });
+      },
       sendNotification: async () => {
         if (sendMode === '410') {
           const err = new Error('subscription gone');
@@ -114,11 +117,80 @@ async function seedData() {
   await db.query('INSERT INTO user_lojas (id, user_id, loja_id, role, credits) VALUES ($1,$2,$3,$4,$5)', ['ulb', 'u-b', 'loja-b', 'owner', 100]);
 }
 
+
+async function assertVapidEnvCompatibility() {
+  const servicePath = require.resolve('../src/services/pushNotificationService');
+
+  const runScenario = async ({ name, env, expectedCall }) => {
+    vapidDetailsCalls = [];
+
+    const originalEnv = {
+      VAPID_PUBLIC_KEY: process.env.VAPID_PUBLIC_KEY,
+      VAPID_PRIVATE_KEY: process.env.VAPID_PRIVATE_KEY,
+      VAPID_SUBJECT: process.env.VAPID_SUBJECT,
+      WEB_PUSH_VAPID_PUBLIC_KEY: process.env.WEB_PUSH_VAPID_PUBLIC_KEY,
+      WEB_PUSH_VAPID_PRIVATE_KEY: process.env.WEB_PUSH_VAPID_PRIVATE_KEY,
+      WEB_PUSH_SUBJECT: process.env.WEB_PUSH_SUBJECT
+    };
+
+    const keys = Object.keys(originalEnv);
+    for (const key of keys) delete process.env[key];
+    for (const [key, value] of Object.entries(env)) {
+      process.env[key] = value;
+    }
+
+    delete require.cache[servicePath];
+    const { processOrderPushJob: processJobWithEnv } = require('../src/services/pushNotificationService');
+    await processJobWithEnv({ payload: '{}' });
+
+    assert.strictEqual(vapidDetailsCalls.length, 1, `${name}: deve configurar VAPID uma vez`);
+    assert.deepStrictEqual(vapidDetailsCalls[0], expectedCall, `${name}: deve respeitar origem correta das variáveis`);
+
+    for (const key of keys) {
+      delete process.env[key];
+      if (originalEnv[key] !== undefined) {
+        process.env[key] = originalEnv[key];
+      }
+    }
+  };
+
+  await runScenario({
+    name: 'novas variáveis VAPID_*',
+    env: {
+      VAPID_PUBLIC_KEY: 'new-public',
+      VAPID_PRIVATE_KEY: 'new-private',
+      WEB_PUSH_SUBJECT: 'mailto:new@example.com'
+    },
+    expectedCall: {
+      subject: 'mailto:new@example.com',
+      publicKey: 'new-public',
+      privateKey: 'new-private'
+    }
+  });
+
+  await runScenario({
+    name: 'fallback WEB_PUSH_VAPID_* legado',
+    env: {
+      WEB_PUSH_VAPID_PUBLIC_KEY: 'legacy-public',
+      WEB_PUSH_VAPID_PRIVATE_KEY: 'legacy-private',
+      WEB_PUSH_SUBJECT: 'mailto:legacy@example.com'
+    },
+    expectedCall: {
+      subject: 'mailto:legacy@example.com',
+      publicKey: 'legacy-public',
+      privateKey: 'legacy-private'
+    }
+  });
+
+  delete require.cache[servicePath];
+}
+
 function storeToken(userId, lojaId) {
   return jwt.sign({ sub: userId, loja_id: lojaId, type: 'store' }, process.env.JWT_SECRET, { expiresIn: '1h' });
 }
 
 async function run() {
+  await assertVapidEnvCompatibility();
   await setupSchema();
   await seedData();
 
