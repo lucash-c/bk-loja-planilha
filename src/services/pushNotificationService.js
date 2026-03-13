@@ -212,6 +212,21 @@ async function revokeSubscription({ subscriptionId, lojaId }) {
   return result.rowCount > 0;
 }
 
+async function revokeSubscriptionByEndpoint({ endpoint, lojaId }) {
+  const result = await db.query(
+    `
+    UPDATE pdv_push_subscriptions
+    SET enabled = FALSE,
+        updated_at = ${nowExpression}
+    WHERE endpoint = $1
+      AND loja_id = $2
+    `,
+    [endpoint, lojaId]
+  );
+
+  return result.rowCount > 0;
+}
+
 function parsePayload(payload) {
   if (!payload) return {};
   if (typeof payload === 'string') {
@@ -382,5 +397,6 @@ module.exports = {
   enqueueOrderPushJob,
   upsertSubscription,
   revokeSubscription,
+  revokeSubscriptionByEndpoint,
   processOrderPushJob
 };

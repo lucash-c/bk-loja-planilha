@@ -133,7 +133,7 @@ function createApp() {
   app.use('/api/store-settings', storeSettingsRoutes);
   app.use('/api/delivery-fees', deliveryFeesRoutes);
   app.use('/api/store-payment-methods', storePaymentMethodsRoutes);
-  app.use('/api/pdv', pdvPushSubscriptionsRoutes);
+  app.use('/api', pdvPushSubscriptionsRoutes);
   app.use('/public', publicMenuRoutes);
 
   app.get('/', (req, res) => {
