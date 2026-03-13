@@ -1,6 +1,7 @@
 const {
   upsertSubscription,
-  revokeSubscription
+  revokeSubscription,
+  revokeSubscriptionByEndpoint
 } = require('../services/pushNotificationService');
 
 function validText(value, max = 4000) {
@@ -17,8 +18,8 @@ async function upsert(req, res, next) {
     }
 
     const endpoint = validText(req.body?.endpoint);
-    const p256dh = validText(req.body?.p256dh, 500);
-    const auth = validText(req.body?.auth, 500);
+    const p256dh = validText(req.body?.p256dh || req.body?.keys?.p256dh, 500);
+    const auth = validText(req.body?.auth || req.body?.keys?.auth, 500);
 
     if (!endpoint || !p256dh || !auth) {
       return res.status(400).json({ error: 'Payload de subscription inválido' });
@@ -48,6 +49,33 @@ async function remove(req, res, next) {
       return res.status(403).json({ error: 'Escopo de loja inválido' });
     }
 
+    const endpoint = validText(req.body?.endpoint);
+
+    if (!endpoint) {
+      return res.status(400).json({ error: 'Endpoint obrigatório' });
+    }
+
+    const revoked = await revokeSubscriptionByEndpoint({
+      endpoint,
+      lojaId: req.loja.id
+    });
+
+    if (!revoked) {
+      return res.status(404).json({ error: 'Subscription não encontrada' });
+    }
+
+    return res.status(204).send();
+  } catch (err) {
+    return next(err);
+  }
+}
+
+async function removeById(req, res, next) {
+  try {
+    if (req.tokenType !== 'store' || !req.loja?.id) {
+      return res.status(403).json({ error: 'Escopo de loja inválido' });
+    }
+
     const revoked = await revokeSubscription({
       subscriptionId: req.params.id,
       lojaId: req.loja.id
@@ -65,5 +93,6 @@ async function remove(req, res, next) {
 
 module.exports = {
   upsert,
-  remove
+  remove,
+  removeById
 };
