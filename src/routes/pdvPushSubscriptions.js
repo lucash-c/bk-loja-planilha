@@ -13,7 +13,12 @@ const pdvPushLimiter = rateLimit({
   legacyHeaders: false
 });
 
-router.post('/push-subscriptions', authenticate, pdvPushLimiter, ctrl.upsert);
-router.delete('/push-subscriptions/:id', authenticate, pdvPushLimiter, ctrl.remove);
+const POST_PATHS = ['/pdv/push-subscriptions', '/push/subscriptions'];
+const DELETE_ENDPOINT_PATHS = ['/pdv/push-subscriptions', '/push/subscriptions'];
+const DELETE_ID_PATHS = ['/pdv/push-subscriptions/:id', '/push/subscriptions/:id'];
+
+router.post(POST_PATHS, authenticate, pdvPushLimiter, ctrl.upsert);
+router.delete(DELETE_ENDPOINT_PATHS, authenticate, pdvPushLimiter, ctrl.remove);
+router.delete(DELETE_ID_PATHS, authenticate, pdvPushLimiter, ctrl.removeById);
 
 module.exports = router;

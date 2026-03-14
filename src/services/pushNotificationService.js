@@ -1,4 +1,6 @@
 let webpushClient = null;
+const fs = require('fs');
+const path = require('path');
 const db = require('../config/db');
 
 const isPostgres = Boolean(process.env.DATABASE_URL);
@@ -6,6 +8,88 @@ const nowExpression = isPostgres ? 'now()' : "datetime('now')";
 
 const metricsByStore = new Map();
 let vapidConfigured = false;
+
+
+let pushSchemaReady = false;
+let pushSchemaBootstrapPromise = null;
+
+function isPushSchemaMissingError(err) {
+  const message = String(err?.message || '').toLowerCase();
+  if (err?.code === '42P01') return true;
+  return message.includes('pdv_push_subscriptions') && (
+    message.includes('does not exist') ||
+    message.includes('no such table') ||
+    message.includes('relation')
+  );
+}
+
+async function bootstrapPushSchemaIfNeeded() {
+  if (pushSchemaReady) return;
+
+  if (!pushSchemaBootstrapPromise) {
+    pushSchemaBootstrapPromise = (async () => {
+      if (isPostgres) {
+        const migrationPath = path.join(__dirname, '../sql/migrations/20260309_pdv_push_notifications.sql');
+        const sql = fs.readFileSync(migrationPath, 'utf8');
+        await db.query('CREATE EXTENSION IF NOT EXISTS "pgcrypto";');
+        await db.query(sql);
+      } else {
+        await db.query(`
+          CREATE TABLE IF NOT EXISTS pdv_push_subscriptions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            loja_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            endpoint TEXT NOT NULL,
+            p256dh TEXT NOT NULL,
+            auth TEXT NOT NULL,
+            enabled INTEGER DEFAULT 1,
+            last_seen_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(loja_id, endpoint)
+          )
+        `);
+        await db.query(`
+          CREATE TABLE IF NOT EXISTS order_push_deliveries (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            order_id TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            subscription_id INTEGER NOT NULL,
+            status TEXT DEFAULT 'sent',
+            provider_status_code INTEGER,
+            error_message TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(order_id, event_type, subscription_id)
+          )
+        `);
+      }
+
+      pushSchemaReady = true;
+      console.info('[push-notification:schema_bootstrap]', { status: 'ok' });
+    })().finally(() => {
+      pushSchemaBootstrapPromise = null;
+    });
+  }
+
+  await pushSchemaBootstrapPromise;
+}
+
+async function runWithPushSchemaGuard(operation) {
+  try {
+    return await operation();
+  } catch (err) {
+    if (!isPushSchemaMissingError(err)) throw err;
+
+    console.warn('[push-notification:schema_bootstrap]', {
+      reason: 'push_schema_missing',
+      error: String(err?.message || err)
+    });
+
+    await bootstrapPushSchemaIfNeeded();
+    return operation();
+  }
+}
 
 
 function getWebPushClient() {
@@ -132,56 +216,8 @@ async function enqueueOrderPushJob({ orderId, lojaId, eventType, payload }) {
 }
 
 async function upsertSubscription({ lojaId, userId, endpoint, p256dh, auth }) {
-  const existing = await db.query(
-    `
-    SELECT id
-    FROM pdv_push_subscriptions
-    WHERE loja_id = $1
-      AND endpoint = $2
-    LIMIT 1
-    `,
-    [lojaId, endpoint]
-  );
-
-  if (existing.rows.length) {
-    const id = existing.rows[0].id;
-    await db.query(
-      `
-      UPDATE pdv_push_subscriptions
-      SET user_id = $2,
-          p256dh = $3,
-          auth = $4,
-          enabled = TRUE,
-          last_seen_at = ${nowExpression},
-          updated_at = ${nowExpression}
-      WHERE id = $1
-      `,
-      [id, userId, p256dh, auth]
-    );
-
-    return { id, created: false };
-  }
-
-  const inserted = await db.query(
-    `
-    INSERT INTO pdv_push_subscriptions (
-      loja_id,
-      user_id,
-      endpoint,
-      p256dh,
-      auth,
-      enabled,
-      last_seen_at
-    )
-    VALUES ($1, $2, $3, $4, $5, TRUE, ${nowExpression})
-    RETURNING id
-    `,
-    [lojaId, userId, endpoint, p256dh, auth]
-  );
-
-  let id = inserted.rows[0]?.id;
-  if (!id) {
-    const selected = await db.query(
+  return runWithPushSchemaGuard(async () => {
+    const existing = await db.query(
       `
       SELECT id
       FROM pdv_push_subscriptions
@@ -191,25 +227,94 @@ async function upsertSubscription({ lojaId, userId, endpoint, p256dh, auth }) {
       `,
       [lojaId, endpoint]
     );
-    id = selected.rows[0]?.id;
-  }
 
-  return { id, created: true };
+    if (existing.rows.length) {
+      const id = existing.rows[0].id;
+      await db.query(
+        `
+        UPDATE pdv_push_subscriptions
+        SET user_id = $2,
+            p256dh = $3,
+            auth = $4,
+            enabled = TRUE,
+            last_seen_at = ${nowExpression},
+            updated_at = ${nowExpression}
+        WHERE id = $1
+        `,
+        [id, userId, p256dh, auth]
+      );
+
+      return { id, created: false };
+    }
+
+    const inserted = await db.query(
+      `
+      INSERT INTO pdv_push_subscriptions (
+        loja_id,
+        user_id,
+        endpoint,
+        p256dh,
+        auth,
+        enabled,
+        last_seen_at
+      )
+      VALUES ($1, $2, $3, $4, $5, TRUE, ${nowExpression})
+      RETURNING id
+      `,
+      [lojaId, userId, endpoint, p256dh, auth]
+    );
+
+    let id = inserted.rows[0]?.id;
+    if (!id) {
+      const selected = await db.query(
+        `
+        SELECT id
+        FROM pdv_push_subscriptions
+        WHERE loja_id = $1
+          AND endpoint = $2
+        LIMIT 1
+        `,
+        [lojaId, endpoint]
+      );
+      id = selected.rows[0]?.id;
+    }
+
+    return { id, created: true };
+  });
 }
 
 async function revokeSubscription({ subscriptionId, lojaId }) {
-  const result = await db.query(
-    `
-    UPDATE pdv_push_subscriptions
-    SET enabled = FALSE,
-        updated_at = ${nowExpression}
-    WHERE id = $1
-      AND loja_id = $2
-    `,
-    [subscriptionId, lojaId]
-  );
+  return runWithPushSchemaGuard(async () => {
+    const result = await db.query(
+      `
+      UPDATE pdv_push_subscriptions
+      SET enabled = FALSE,
+          updated_at = ${nowExpression}
+      WHERE id = $1
+        AND loja_id = $2
+      `,
+      [subscriptionId, lojaId]
+    );
 
-  return result.rowCount > 0;
+    return result.rowCount > 0;
+  });
+}
+
+async function revokeSubscriptionByEndpoint({ endpoint, lojaId }) {
+  return runWithPushSchemaGuard(async () => {
+    const result = await db.query(
+      `
+      UPDATE pdv_push_subscriptions
+      SET enabled = FALSE,
+          updated_at = ${nowExpression}
+      WHERE endpoint = $1
+        AND loja_id = $2
+      `,
+      [endpoint, lojaId]
+    );
+
+    return result.rowCount > 0;
+  });
 }
 
 function parsePayload(payload) {
@@ -271,6 +376,8 @@ async function processOrderPushJob(job) {
   if (!sanitizedOrder?.order_id || !eventType || !lojaId || !orderId) {
     return;
   }
+
+  await bootstrapPushSchemaIfNeeded();
 
   const subscriptions = await db.query(
     `
@@ -382,5 +489,6 @@ module.exports = {
   enqueueOrderPushJob,
   upsertSubscription,
   revokeSubscription,
+  revokeSubscriptionByEndpoint,
   processOrderPushJob
 };

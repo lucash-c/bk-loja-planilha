@@ -223,6 +223,22 @@ async function run() {
   });
   assert.strictEqual(badRes.status, 400);
 
+
+  const subAliasRes = await fetch(`http://127.0.0.1:${port}/api/push/subscriptions`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${tokenA}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      endpoint: 'https://push.example/sub-alias',
+      keys: { p256dh: 'key-alias', auth: 'auth-alias' },
+      context: { storeId: 'loja-a' }
+    })
+  });
+  assert.strictEqual(subAliasRes.status, 201);
+  const subAliasBody = await subAliasRes.json();
+  assert.ok(subAliasBody.id);
   const subResB = await fetch(`http://127.0.0.1:${port}/api/pdv/push-subscriptions`, {
     method: 'POST',
     headers: {
@@ -233,6 +249,16 @@ async function run() {
   });
   assert.strictEqual(subResB.status, 201);
 
+
+  const deleteByEndpoint = await fetch(`http://127.0.0.1:${port}/api/push/subscriptions`, {
+    method: 'DELETE',
+    headers: {
+      Authorization: `Bearer ${tokenA}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ endpoint: 'https://push.example/sub-alias' })
+  });
+  assert.strictEqual(deleteByEndpoint.status, 204);
   const forbiddenDelete = await fetch(`http://127.0.0.1:${port}/api/pdv/push-subscriptions/${subBody.id}`, {
     method: 'DELETE',
     headers: { Authorization: `Bearer ${tokenB}` }
