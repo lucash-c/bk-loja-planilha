@@ -79,6 +79,40 @@ function resolveOrderItemOptions(item = {}) {
   return sanitizeOptionsArray(parsedOptionsJson);
 }
 
+function deserializeOptions(optionsJson) {
+  try {
+    if (Array.isArray(optionsJson)) {
+      return sanitizeOptionsArray(optionsJson) || [];
+    }
+
+    if (typeof optionsJson !== 'string') {
+      return [];
+    }
+
+    const trimmed = optionsJson.trim();
+    if (!trimmed) {
+      return [];
+    }
+
+    const parsed = JSON.parse(trimmed);
+    return sanitizeOptionsArray(parsed) || [];
+  } catch (err) {
+    return [];
+  }
+}
+
+function normalizeItemForResponse(item = {}) {
+  const options = deserializeOptions(item.options_json);
+
+  return {
+    ...item,
+    options_json: options.length ? options : null,
+    options
+  };
+}
+
 module.exports = {
-  resolveOrderItemOptions
+  resolveOrderItemOptions,
+  deserializeOptions,
+  normalizeItemForResponse
 };
