@@ -5,7 +5,10 @@ const { v4: uuidv4 } = require('uuid');
 const idempotencyCache = require('../services/idempotencyCache');
 const { EVENT_VERSION, ordersRealtimeService } = require('../services/ordersRealtimeService');
 const { sanitizeOrderPayload, enqueueOrderPushJob } = require('../services/pushNotificationService');
-const { resolveOrderItemOptions } = require('../utils/orderItemOptions');
+const {
+  resolveOrderItemOptions,
+  normalizeItemForResponse
+} = require('../utils/orderItemOptions');
 
 function stableStringify(value) {
   if (Array.isArray(value)) {
@@ -847,12 +850,7 @@ async function listOrders(req, res, next) {
 
     const itemsByOrder = new Map();
     for (const item of itemsRes.rows) {
-      const normalizedItem = {
-        ...item,
-        options_json: item.options_json
-          ? JSON.parse(item.options_json)
-          : null
-      };
+      const normalizedItem = normalizeItemForResponse(item);
       if (!itemsByOrder.has(item.order_id)) {
         itemsByOrder.set(item.order_id, []);
       }
@@ -901,12 +899,7 @@ async function getOrder(req, res, next) {
       )
     ).rows;
 
-    order.items = items.map(it => ({
-      ...it,
-      options_json: it.options_json
-        ? JSON.parse(it.options_json)
-        : null
-    }));
+    order.items = items.map(normalizeItemForResponse);
 
     res.json(order);
   } catch (err) {
