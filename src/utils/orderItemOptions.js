@@ -4,45 +4,50 @@ function isPlainObject(value) {
   return prototype === Object.prototype || prototype === null;
 }
 
-function sanitizeOptionValue(value, seen = new WeakSet()) {
-  if (value === null) return null;
+const OPTION_WHITELIST_FIELDS = [
+  'option_id',
+  'option_name',
+  'item_id',
+  'item_name',
+  'price'
+];
 
-  const type = typeof value;
-  if (type === 'string' || type === 'boolean') return value;
-  if (type === 'number') return Number.isFinite(value) ? value : null;
-  if (
-    type === 'undefined' ||
-    type === 'function' ||
-    type === 'symbol' ||
-    type === 'bigint'
-  ) {
-    return undefined;
-  }
+function sanitizeStringField(value) {
+  if (value === null || typeof value === 'undefined') return null;
+  const normalized = String(value).trim();
+  return normalized ? normalized : null;
+}
 
-  if (Array.isArray(value)) {
-    return value
-      .map(item => sanitizeOptionValue(item, seen))
-      .filter(item => item !== undefined);
-  }
+function sanitizePriceField(value) {
+  const normalized = Number(value);
+  if (!Number.isFinite(normalized)) return null;
+  return Number(normalized.toFixed(2));
+}
 
-  if (!isPlainObject(value)) {
-    return undefined;
-  }
-
-  if (seen.has(value)) {
-    return undefined;
-  }
-  seen.add(value);
+function sanitizeOptionEntry(value) {
+  if (!isPlainObject(value)) return null;
 
   const sanitized = {};
-  for (const [key, nestedValue] of Object.entries(value)) {
-    const normalizedNested = sanitizeOptionValue(nestedValue, seen);
-    if (normalizedNested !== undefined) {
-      sanitized[key] = normalizedNested;
+  for (const field of OPTION_WHITELIST_FIELDS) {
+    if (!Object.prototype.hasOwnProperty.call(value, field)) continue;
+
+    if (field === 'price') {
+      const normalizedPrice = sanitizePriceField(value[field]);
+      if (normalizedPrice !== null) {
+        sanitized.price = normalizedPrice;
+      }
+      continue;
+    }
+
+    const normalizedString = sanitizeStringField(value[field]);
+    if (normalizedString !== null) {
+      sanitized[field] = normalizedString;
     }
   }
 
-  seen.delete(value);
+  const hasUsefulMinimumFields = Boolean(sanitized.option_name || sanitized.item_name);
+  if (!hasUsefulMinimumFields) return null;
+
   return sanitized;
 }
 
@@ -50,8 +55,8 @@ function sanitizeOptionsArray(value) {
   if (!Array.isArray(value)) return null;
 
   return value
-    .map(item => sanitizeOptionValue(item))
-    .filter(item => item !== undefined);
+    .map(item => sanitizeOptionEntry(item))
+    .filter(item => item !== null);
 }
 
 function parseOptionsJson(value) {
