@@ -5,6 +5,7 @@ const { v4: uuidv4 } = require('uuid');
 const idempotencyCache = require('../services/idempotencyCache');
 const { EVENT_VERSION, ordersRealtimeService } = require('../services/ordersRealtimeService');
 const { sanitizeOrderPayload, enqueueOrderPushJob } = require('../services/pushNotificationService');
+const { resolveOrderItemOptions } = require('../utils/orderItemOptions');
 
 function stableStringify(value) {
   if (Array.isArray(value)) {
@@ -293,8 +294,8 @@ async function createOrder(req, res, next) {
         const totalPrice = quantity * unitPrice;
         const observation =
           it.observation || it.observacao || it.obs || it.observação || null;
-        const optionsJson =
-          it.options_json ? JSON.stringify(it.options_json) : null;
+        const resolvedOptions = resolveOrderItemOptions(it);
+        const optionsJson = resolvedOptions ? JSON.stringify(resolvedOptions) : null;
         const baseIndex = index * 7;
 
         itemValues.push(
@@ -709,7 +710,8 @@ async function createPdvTransactional(req, res, next) {
             const totalPrice = Number((quantity * unitPrice).toFixed(2));
             const observation =
               it.observation || it.observacao || it.obs || it.observação || null;
-            const optionsJson = it.options_json ? JSON.stringify(it.options_json) : null;
+            const resolvedOptions = resolveOrderItemOptions(it);
+            const optionsJson = resolvedOptions ? JSON.stringify(resolvedOptions) : null;
             const baseIndex = index * 7;
 
             itemValues.push(
