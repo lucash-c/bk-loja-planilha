@@ -298,7 +298,9 @@ async function createOrder(req, res, next) {
         const observation =
           it.observation || it.observacao || it.obs || it.observação || null;
         const resolvedOptions = resolveOrderItemOptions(it);
-        const optionsJson = resolvedOptions ? JSON.stringify(resolvedOptions) : null;
+        const optionsJson = resolvedOptions && resolvedOptions.length
+          ? JSON.stringify(resolvedOptions)
+          : null;
         const baseIndex = index * 7;
 
         itemValues.push(
@@ -714,7 +716,9 @@ async function createPdvTransactional(req, res, next) {
             const observation =
               it.observation || it.observacao || it.obs || it.observação || null;
             const resolvedOptions = resolveOrderItemOptions(it);
-            const optionsJson = resolvedOptions ? JSON.stringify(resolvedOptions) : null;
+            const optionsJson = resolvedOptions && resolvedOptions.length
+              ? JSON.stringify(resolvedOptions)
+              : null;
             const baseIndex = index * 7;
 
             itemValues.push(

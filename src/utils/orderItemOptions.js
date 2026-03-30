@@ -79,9 +79,9 @@ function resolveOrderItemOptions(item = {}) {
   if (options) return options;
 
   const parsedOptionsJson = parseOptionsJson(item.options_json);
-  if (!parsedOptionsJson) return null;
+  if (!parsedOptionsJson) return [];
 
-  return sanitizeOptionsArray(parsedOptionsJson);
+  return sanitizeOptionsArray(parsedOptionsJson) || [];
 }
 
 function deserializeOptions(optionsJson) {
