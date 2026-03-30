@@ -1,5 +1,5 @@
 const assert = require('assert');
-const { deserializeOptions } = require('../src/utils/orderItemOptions');
+const { deserializeOptions, resolveOrderItemOptions } = require('../src/utils/orderItemOptions');
 
 function run() {
   const options = deserializeOptions([
@@ -65,6 +65,14 @@ function run() {
       price: 4
     }
   ]);
+
+  assert.deepStrictEqual(
+    resolveOrderItemOptions({
+      options: 'invalid',
+      options_json: '{not-json'
+    }),
+    []
+  );
 
   console.log('order item options sanitizer tests passed');
 }

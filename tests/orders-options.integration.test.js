@@ -91,6 +91,20 @@ async function createOrder({ externalId, items }) {
   });
 }
 
+async function createPdvTransactional({ externalId, items }) {
+  return invoke(ordersController.createPdvTransactional, {
+    headers: {
+      'x-loja-key': 'loja-key',
+      'idempotency-key': `idem-${externalId}`
+    },
+    body: {
+      external_id: externalId,
+      total: 30,
+      items
+    }
+  });
+}
+
 async function run() {
   await setupSchema();
   await seedStore({});
@@ -193,6 +207,43 @@ async function run() {
   const malformedRows = await db.query('SELECT options_json FROM order_items WHERE order_id = $1 ORDER BY product_name ASC', [malformedOrderId]);
   assert.strictEqual(malformedRows.rows[0].options_json, null);
   assert.strictEqual(malformedRows.rows[1].options_json, null);
+
+  const malformedReadRes = await invoke(ordersController.getOrder, {
+    loja: { id: 'loja-1' },
+    params: { id: malformedOrderId }
+  });
+  assert.strictEqual(malformedReadRes.statusCode, 200);
+  assert.deepStrictEqual(malformedReadRes.body.items[0].options, []);
+  assert.strictEqual(malformedReadRes.body.items[0].options_json, null);
+  assert.deepStrictEqual(malformedReadRes.body.items[1].options, []);
+  assert.strictEqual(malformedReadRes.body.items[1].options_json, null);
+
+  // createPdvTransactional também persiste options normalizado
+  const pdvOrder = await createPdvTransactional({
+    externalId: 'pdv-options',
+    items: [
+      {
+        product_name: 'Combo',
+        quantity: 1,
+        unit_price: 30,
+        options: [
+          {
+            option_name: 'Adicionais',
+            item_name: 'Bacon',
+            price: '5.127',
+            metadata_dump: { internal: true }
+          }
+        ]
+      }
+    ]
+  });
+
+  assert.strictEqual(pdvOrder.statusCode, 201);
+  const pdvOrderId = pdvOrder.body.order.id;
+  const pdvItemPersisted = await db.query('SELECT options_json FROM order_items WHERE order_id = $1', [pdvOrderId]);
+  assert.deepStrictEqual(JSON.parse(pdvItemPersisted.rows[0].options_json), [
+    { option_name: 'Adicionais', item_name: 'Bacon', price: 5.13 }
+  ]);
 
   // registro antigo com options_json string/JSON parcial continua legível
   const legacyManualOrderId = 'legacy-manual-order';
