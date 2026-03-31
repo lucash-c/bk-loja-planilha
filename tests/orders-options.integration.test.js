@@ -437,6 +437,23 @@ async function run() {
     { option_name: 'Adicionais', item_name: 'aaaa', price: 10 }
   ]);
   assert.deepStrictEqual(realPizzaGetRes.body.items[0].options_json, realPizzaGetRes.body.items[0].options);
+  assert.deepStrictEqual(realPizzaGetRes.body.items[0].optionsJson, realPizzaGetRes.body.items[0].options);
+
+  const realPizzaListRes = await invoke(ordersController.listOrders, {
+    loja: { id: 'loja-1' },
+    query: { include: 'items', q: 'pdv-real-pizza' }
+  });
+  assert.strictEqual(realPizzaListRes.statusCode, 200);
+  const realPizzaListedOrder = realPizzaListRes.body.find(order => order.id === realPizzaOrderId);
+  assert.ok(realPizzaListedOrder, 'pedido real pizza deve aparecer no listOrders include=items');
+  assert.ok(Array.isArray(realPizzaListedOrder.items) && realPizzaListedOrder.items.length === 1);
+  assert.deepStrictEqual(realPizzaListedOrder.items[0].options, [
+    { option_name: 'Sabores', item_name: 'calabresa', price: 35 },
+    { option_name: 'Sabores', item_name: 'mussarela', price: 50 },
+    { option_name: 'Adicionais', item_name: 'aaaa', price: 10 }
+  ]);
+  assert.deepStrictEqual(realPizzaListedOrder.items[0].options_json, realPizzaListedOrder.items[0].options);
+  assert.deepStrictEqual(realPizzaListedOrder.items[0].optionsJson, realPizzaListedOrder.items[0].options);
 
   console.log('orders item options integration tests passed');
 }

@@ -7,6 +7,7 @@ const { EVENT_VERSION, ordersRealtimeService } = require('../services/ordersReal
 const { sanitizeOrderPayload, enqueueOrderPushJob } = require('../services/pushNotificationService');
 const {
   resolveOrderItemOptions,
+  deserializeOptions,
   normalizeItemForResponse
 } = require('../utils/orderItemOptions');
 
@@ -809,6 +810,19 @@ async function createPdvTransactional(req, res, next) {
             `,
             itemValues
           );
+          const persistedItemsRes = await tx.query(
+            `
+            SELECT id, order_id, product_name, options_json
+            FROM order_items
+            WHERE order_id = $1
+            ORDER BY created_at ASC
+            `,
+            [orderId]
+          );
+          console.log('[pedido-debug-api] createPdvTransactional:post-insert-order-items-read', {
+            orderId,
+            persistedRows: persistedItemsRes.rows
+          });
 
           await tx.query(
             `
@@ -927,6 +941,11 @@ async function listOrders(req, res, next) {
         order_id: item.order_id,
         options_json: item.options_json
       });
+      const parsedOptions = deserializeOptions(item.options_json);
+      console.log('[pedido-debug-api] listOrders:item-options-after-parse', {
+        order_id: item.order_id,
+        parsedOptions
+      });
       const normalizedItem = normalizeItemForResponse(item);
       console.log('[pedido-debug-api] listOrders:item-after-normalizeItemForResponse', {
         order_id: item.order_id,
@@ -994,9 +1013,18 @@ async function getOrder(req, res, next) {
       rows: items
     });
     const normalizedItems = items.map(item => {
+      console.log('[pedido-debug-api] getOrder:item-row-from-db', {
+        orderId: order.id,
+        item
+      });
       console.log('[pedido-debug-api] getOrder:item-options-json-raw', {
         orderId: order.id,
         options_json: item.options_json
+      });
+      const parsedOptions = deserializeOptions(item.options_json);
+      console.log('[pedido-debug-api] getOrder:item-options-after-parse', {
+        orderId: order.id,
+        parsedOptions
       });
       const normalizedItem = normalizeItemForResponse(item);
       console.log('[pedido-debug-api] getOrder:item-after-normalizeItemForResponse', {

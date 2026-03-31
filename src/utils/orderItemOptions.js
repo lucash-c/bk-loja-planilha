@@ -251,6 +251,10 @@ function deserializeOptions(optionsJson) {
       return sanitizeOptionsArray(optionsJson) || [];
     }
 
+    if (isPlainObject(optionsJson)) {
+      return sanitizeOptionsArray(optionsJson) || [];
+    }
+
     if (typeof optionsJson !== 'string') {
       return [];
     }
@@ -268,15 +272,18 @@ function deserializeOptions(optionsJson) {
 }
 
 function normalizeItemForResponse(item = {}) {
-  const options = deserializeOptions(item.options_json);
+  const rawOptionsJson = item.options_json;
+  const options = deserializeOptions(rawOptionsJson);
   console.log('[pedido-debug-api] orderItemOptions:normalizeItemForResponse', {
     item,
+    options_json_before_parse: rawOptionsJson,
     parsedOptions: options
   });
 
   return {
     ...item,
     options_json: options.length ? options : null,
+    optionsJson: options.length ? options : null,
     options
   };
 }

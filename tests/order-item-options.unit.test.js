@@ -122,6 +122,23 @@ function run() {
     }
   ]);
 
+  const fromObject = deserializeOptions({
+    options: [
+      {
+        option_name: 'Massa',
+        items: [{ name: 'Pan', price: '2.00' }]
+      }
+    ]
+  });
+
+  assert.deepStrictEqual(fromObject, [
+    {
+      option_name: 'Massa',
+      item_name: 'Pan',
+      price: 2
+    }
+  ]);
+
   console.log('order item options sanitizer tests passed');
 }
 
