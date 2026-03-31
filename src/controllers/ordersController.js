@@ -34,10 +34,6 @@ function getIdempotencyKey(req) {
   return req.headers['idempotency-key'] || req.headers['x-idempotency-key'] || null;
 }
 
-function logIdempotency(event, fields) {
-  console.info(`[idempotency:${event}]`, fields);
-}
-
 function normalizeMoney(value) {
   const num = Number(value);
   if (!Number.isFinite(num) || num < 0) return null;
@@ -87,14 +83,6 @@ async function handleIdempotency({ req, res, storeId, scope, orderId, execute, o
     requestHash
   });
 
-  logIdempotency('begin', {
-    idempotencyKey,
-    scope,
-    storeId,
-    orderId,
-    state: begin.state || (begin.acquired ? 'acquired' : 'unknown')
-  });
-
   if (!begin.acquired) {
     if (begin.state === 'payload_mismatch') {
       return res.status(409).json({
@@ -131,12 +119,6 @@ async function handleIdempotency({ req, res, storeId, scope, orderId, execute, o
       response: execution.payload
     });
 
-    logIdempotency('completed', {
-      idempotencyKey,
-      scope,
-      storeId,
-      orderId: execution.orderId || orderId
-    });
   }
 
   return res.status(execution.statusCode).json(execution.payload);
@@ -212,6 +194,11 @@ async function isRealtimeEnabledForStore(lojaId) {
 async function createOrder(req, res, next) {
   try {
     const lojaId = req.loja.id;
+    console.log('[pedido-debug-api] createOrder:req-body', {
+      lojaId,
+      body: req.body,
+      items: req.body?.items
+    });
 
     const {
       external_id,
@@ -250,6 +237,10 @@ async function createOrder(req, res, next) {
     }
 
     const id = uuidv4();
+    console.log('[pedido-debug-api] createOrder:order-id-generated', {
+      lojaId,
+      orderId: id
+    });
 
     await db.withTransaction(async tx => {
       await tx.query(
@@ -291,7 +282,16 @@ async function createOrder(req, res, next) {
       );
 
       const itemValues = [];
+      const insertItemPayload = [];
       const itemPlaceholders = items.map((it, index) => {
+        console.log('[pedido-debug-api] createOrder:item-before-normalize', {
+          orderId: id,
+          index,
+          item: it,
+          options: it?.options,
+          options_json: it?.options_json,
+          keys: Object.keys(it || {})
+        });
         const quantity = it.quantity || 1;
         const unitPrice = it.unit_price || 0;
         const totalPrice = quantity * unitPrice;
@@ -301,7 +301,22 @@ async function createOrder(req, res, next) {
         const optionsJson = resolvedOptions && resolvedOptions.length
           ? JSON.stringify(resolvedOptions)
           : null;
+        console.log('[pedido-debug-api] createOrder:item-after-normalize', {
+          orderId: id,
+          index,
+          resolvedOptions,
+          optionsJson
+        });
         const baseIndex = index * 7;
+        const insertRowPayload = {
+          order_id: id,
+          product_name: it.product_name,
+          quantity,
+          unit_price: unitPrice,
+          total_price: totalPrice,
+          observation,
+          options_json: optionsJson
+        };
 
         itemValues.push(
           id,
@@ -312,8 +327,14 @@ async function createOrder(req, res, next) {
           observation,
           optionsJson
         );
+        insertItemPayload.push(insertRowPayload);
+        console.log('[pedido-debug-api] insert-order-items:row', insertRowPayload);
 
         return `($${baseIndex + 1},$${baseIndex + 2},$${baseIndex + 3},$${baseIndex + 4},$${baseIndex + 5},$${baseIndex + 6},$${baseIndex + 7})`;
+      });
+      console.log('[pedido-debug-api] createOrder:insert-order-items-payload', {
+        orderId: id,
+        insertItemPayload
       });
 
       await tx.query(
@@ -579,6 +600,11 @@ async function createPdvTransactional(req, res, next) {
         }
       },
       execute: async () => {
+        console.log('[pedido-debug-api] createPdvTransactional:req-body', {
+          lojaId,
+          body: req.body,
+          items: req.body?.items
+        });
         const {
           external_id,
           customer_name,
@@ -633,6 +659,10 @@ async function createPdvTransactional(req, res, next) {
 
         const forUpdate = getForUpdateClause();
         const orderId = uuidv4();
+        console.log('[pedido-debug-api] createPdvTransactional:order-id-generated', {
+          lojaId,
+          orderId
+        });
 
         return db.withTransaction(async tx => {
           const creditsRes = await tx.query(
@@ -709,7 +739,16 @@ async function createPdvTransactional(req, res, next) {
           );
 
           const itemValues = [];
+          const insertItemPayload = [];
           const itemPlaceholders = items.map((it, index) => {
+            console.log('[pedido-debug-api] createPdvTransactional:item-before-normalize', {
+              orderId,
+              index,
+              item: it,
+              options: it?.options,
+              options_json: it?.options_json,
+              keys: Object.keys(it || {})
+            });
             const quantity = it.quantity || 1;
             const unitPrice = Number(it.unit_price || 0);
             const totalPrice = Number((quantity * unitPrice).toFixed(2));
@@ -719,7 +758,22 @@ async function createPdvTransactional(req, res, next) {
             const optionsJson = resolvedOptions && resolvedOptions.length
               ? JSON.stringify(resolvedOptions)
               : null;
+            console.log('[pedido-debug-api] createPdvTransactional:item-after-normalize', {
+              orderId,
+              index,
+              resolvedOptions,
+              optionsJson
+            });
             const baseIndex = index * 7;
+            const insertRowPayload = {
+              order_id: orderId,
+              product_name: it.product_name,
+              quantity,
+              unit_price: unitPrice,
+              total_price: totalPrice,
+              observation,
+              options_json: optionsJson
+            };
 
             itemValues.push(
               orderId,
@@ -730,8 +784,14 @@ async function createPdvTransactional(req, res, next) {
               observation,
               optionsJson
             );
+            insertItemPayload.push(insertRowPayload);
+            console.log('[pedido-debug-api] insert-order-items:row', insertRowPayload);
 
             return `($${baseIndex + 1},$${baseIndex + 2},$${baseIndex + 3},$${baseIndex + 4},$${baseIndex + 5},$${baseIndex + 6},$${baseIndex + 7})`;
+          });
+          console.log('[pedido-debug-api] createPdvTransactional:insert-order-items-payload', {
+            orderId,
+            insertItemPayload
           });
 
           await tx.query(
@@ -839,6 +899,11 @@ async function listOrders(req, res, next) {
     if (!include.includes('items') || rows.length === 0) {
       return res.json(rows);
     }
+    console.log('[pedido-debug-api] listOrders:include-items-detected', {
+      lojaId,
+      include,
+      orderCount: rows.length
+    });
 
     const orderIds = rows.map(order => order.id);
     const placeholders = orderIds.map((_, index) => `$${index + 1}`).join(',');
@@ -854,7 +919,19 @@ async function listOrders(req, res, next) {
 
     const itemsByOrder = new Map();
     for (const item of itemsRes.rows) {
+      console.log('[pedido-debug-api] listOrders:item-raw-from-db', {
+        order_id: item.order_id,
+        item
+      });
+      console.log('[pedido-debug-api] listOrders:item-options-json-raw', {
+        order_id: item.order_id,
+        options_json: item.options_json
+      });
       const normalizedItem = normalizeItemForResponse(item);
+      console.log('[pedido-debug-api] listOrders:item-after-normalizeItemForResponse', {
+        order_id: item.order_id,
+        normalizedItem
+      });
       if (!itemsByOrder.has(item.order_id)) {
         itemsByOrder.set(item.order_id, []);
       }
@@ -865,6 +942,12 @@ async function listOrders(req, res, next) {
       ...order,
       items: itemsByOrder.get(order.id) || []
     }));
+    for (const order of ordersWithItems) {
+      console.log('[pedido-debug-api] listOrders:response-order-payload', {
+        order_id: order.id,
+        payload: order
+      });
+    }
 
     return res.json(ordersWithItems);
   } catch (err) {
@@ -879,6 +962,10 @@ async function getOrder(req, res, next) {
   try {
     const lojaId = req.loja.id;
     const id = req.params.id;
+    console.log('[pedido-debug-api] getOrder:requested-id', {
+      lojaId,
+      requestedId: id
+    });
 
     const orderRes = await db.query(
       `
@@ -902,8 +989,27 @@ async function getOrder(req, res, next) {
         [order.id]
       )
     ).rows;
-
-    order.items = items.map(normalizeItemForResponse);
+    console.log('[pedido-debug-api] getOrder:items-raw-from-db', {
+      orderId: order.id,
+      rows: items
+    });
+    const normalizedItems = items.map(item => {
+      console.log('[pedido-debug-api] getOrder:item-options-json-raw', {
+        orderId: order.id,
+        options_json: item.options_json
+      });
+      const normalizedItem = normalizeItemForResponse(item);
+      console.log('[pedido-debug-api] getOrder:item-after-normalizeItemForResponse', {
+        orderId: order.id,
+        normalizedItem
+      });
+      return normalizedItem;
+    });
+    order.items = normalizedItems;
+    console.log('[pedido-debug-api] getOrder:response-payload', {
+      orderId: order.id,
+      payload: order
+    });
 
     res.json(order);
   } catch (err) {

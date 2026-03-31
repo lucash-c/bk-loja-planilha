@@ -53,7 +53,13 @@ function readFirstField(objectValue, keys) {
 }
 
 function sanitizeOptionEntry(value) {
-  if (!isPlainObject(value)) return null;
+  if (!isPlainObject(value)) {
+    console.log('[pedido-debug-api] orderItemOptions:entry-discarded', {
+      reason: 'entry-not-plain-object',
+      value
+    });
+    return null;
+  }
 
   const sanitized = {};
   for (const field of OPTION_WHITELIST_FIELDS) {
@@ -74,7 +80,14 @@ function sanitizeOptionEntry(value) {
   }
 
   const hasUsefulMinimumFields = Boolean(sanitized.option_name || sanitized.item_name);
-  if (!hasUsefulMinimumFields) return null;
+  if (!hasUsefulMinimumFields) {
+    console.log('[pedido-debug-api] orderItemOptions:entry-discarded', {
+      reason: 'missing-option-name-and-item-name',
+      value,
+      sanitized
+    });
+    return null;
+  }
 
   return sanitized;
 }
@@ -84,7 +97,13 @@ function normalizeFlatOptionEntry(value) {
 }
 
 function normalizeGroupedOptionEntry(groupValue) {
-  if (!isPlainObject(groupValue)) return [];
+  if (!isPlainObject(groupValue)) {
+    console.log('[pedido-debug-api] orderItemOptions:entry-discarded', {
+      reason: 'group-not-plain-object',
+      groupValue
+    });
+    return [];
+  }
 
   const groupName = sanitizeStringField(readFirstField(groupValue, OPTION_GROUP_NAME_KEYS));
   const groupId = sanitizeStringField(readFirstField(groupValue, OPTION_GROUP_ID_KEYS));
@@ -92,12 +111,26 @@ function normalizeGroupedOptionEntry(groupValue) {
 
   if (!Array.isArray(groupedItemsRaw)) {
     const maybeFlat = normalizeFlatOptionEntry(groupValue);
+    console.log('[pedido-debug-api] orderItemOptions:group-without-items-array', {
+      groupValue,
+      maybeFlat
+    });
     return maybeFlat ? [maybeFlat] : [];
   }
+  console.log('[pedido-debug-api] orderItemOptions:group-items-detected', {
+    groupValue,
+    groupedItemsRaw
+  });
 
   return groupedItemsRaw
     .map(item => {
-      if (!isPlainObject(item)) return null;
+      if (!isPlainObject(item)) {
+        console.log('[pedido-debug-api] orderItemOptions:entry-discarded', {
+          reason: 'group-item-not-plain-object',
+          item
+        });
+        return null;
+      }
 
       const itemName = sanitizeStringField(readFirstField(item, OPTION_ITEM_NAME_KEYS));
       const itemId = sanitizeStringField(readFirstField(item, OPTION_ITEM_ID_KEYS));
@@ -115,23 +148,53 @@ function normalizeGroupedOptionEntry(groupValue) {
 }
 
 function unwrapOptionCandidates(value) {
-  if (Array.isArray(value)) return value;
+  if (Array.isArray(value)) {
+    console.log('[pedido-debug-api] orderItemOptions:shape-detected', {
+      shape: 'array',
+      value
+    });
+    return value;
+  }
 
-  if (!isPlainObject(value)) return null;
+  if (!isPlainObject(value)) {
+    console.log('[pedido-debug-api] orderItemOptions:entry-discarded', {
+      reason: 'options-root-not-array-or-object',
+      value
+    });
+    return null;
+  }
 
   for (const key of OPTION_CONTAINER_KEYS) {
     const candidate = value[key];
-    if (Array.isArray(candidate)) return candidate;
+    if (Array.isArray(candidate)) {
+      console.log('[pedido-debug-api] orderItemOptions:container-detected', {
+        containerKey: key,
+        value
+      });
+      return candidate;
+    }
   }
 
+  console.log('[pedido-debug-api] orderItemOptions:shape-detected', {
+    shape: 'single-object',
+    value
+  });
   return [value];
 }
 
 function sanitizeOptionsArray(value) {
+  console.log('[pedido-debug-api] orderItemOptions:normalize-input', { value });
   const candidates = unwrapOptionCandidates(value);
-  if (!candidates) return null;
+  if (!candidates) {
+    return null;
+  }
 
-  return candidates.flatMap(item => normalizeGroupedOptionEntry(item));
+  const flatCanonical = candidates.flatMap(item => normalizeGroupedOptionEntry(item));
+  console.log('[pedido-debug-api] orderItemOptions:flat-canonical-result', {
+    candidates,
+    flatCanonical
+  });
+  return flatCanonical;
 }
 
 function parseOptionsJson(value) {
@@ -150,13 +213,36 @@ function parseOptionsJson(value) {
 }
 
 function resolveOrderItemOptions(item = {}) {
+  console.log('[pedido-debug-api] orderItemOptions:resolve-start', {
+    item,
+    options: item.options,
+    options_json: item.options_json
+  });
   const options = sanitizeOptionsArray(item.options);
-  if (options) return options;
+  if (options) {
+    console.log('[pedido-debug-api] orderItemOptions:resolve-result', {
+      source: 'item.options',
+      options
+    });
+    return options;
+  }
 
   const parsedOptionsJson = parseOptionsJson(item.options_json);
-  if (!parsedOptionsJson) return [];
+  if (!parsedOptionsJson) {
+    console.log('[pedido-debug-api] orderItemOptions:resolve-result', {
+      source: 'none',
+      options: []
+    });
+    return [];
+  }
 
-  return sanitizeOptionsArray(parsedOptionsJson) || [];
+  const normalizedFromJson = sanitizeOptionsArray(parsedOptionsJson) || [];
+  console.log('[pedido-debug-api] orderItemOptions:resolve-result', {
+    source: 'item.options_json',
+    parsedOptionsJson,
+    options: normalizedFromJson
+  });
+  return normalizedFromJson;
 }
 
 function deserializeOptions(optionsJson) {
@@ -183,6 +269,10 @@ function deserializeOptions(optionsJson) {
 
 function normalizeItemForResponse(item = {}) {
   const options = deserializeOptions(item.options_json);
+  console.log('[pedido-debug-api] orderItemOptions:normalizeItemForResponse', {
+    item,
+    parsedOptions: options
+  });
 
   return {
     ...item,
