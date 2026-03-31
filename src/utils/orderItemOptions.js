@@ -216,7 +216,8 @@ function resolveOrderItemOptions(item = {}) {
   console.log('[pedido-debug-api] orderItemOptions:resolve-start', {
     item,
     options: item.options,
-    options_json: item.options_json
+    options_json: item.options_json,
+    optionsJson: item.optionsJson
   });
   const options = sanitizeOptionsArray(item.options);
   if (options) {
@@ -228,7 +229,9 @@ function resolveOrderItemOptions(item = {}) {
   }
 
   const parsedOptionsJson = parseOptionsJson(item.options_json);
-  if (!parsedOptionsJson) {
+  const parsedCamelOptionsJson = parseOptionsJson(item.optionsJson);
+  const parsedLegacyOptions = parsedOptionsJson || parsedCamelOptionsJson;
+  if (!parsedLegacyOptions) {
     console.log('[pedido-debug-api] orderItemOptions:resolve-result', {
       source: 'none',
       options: []
@@ -236,10 +239,10 @@ function resolveOrderItemOptions(item = {}) {
     return [];
   }
 
-  const normalizedFromJson = sanitizeOptionsArray(parsedOptionsJson) || [];
+  const normalizedFromJson = sanitizeOptionsArray(parsedLegacyOptions) || [];
   console.log('[pedido-debug-api] orderItemOptions:resolve-result', {
-    source: 'item.options_json',
-    parsedOptionsJson,
+    source: parsedOptionsJson ? 'item.options_json' : 'item.optionsJson',
+    parsedOptionsJson: parsedLegacyOptions,
     options: normalizedFromJson
   });
   return normalizedFromJson;
@@ -272,7 +275,9 @@ function deserializeOptions(optionsJson) {
 }
 
 function normalizeItemForResponse(item = {}) {
-  const rawOptionsJson = item.options_json;
+  const rawOptionsJson = typeof item.options_json !== 'undefined'
+    ? item.options_json
+    : item.optionsJson;
   const options = deserializeOptions(rawOptionsJson);
   console.log('[pedido-debug-api] orderItemOptions:normalizeItemForResponse', {
     item,

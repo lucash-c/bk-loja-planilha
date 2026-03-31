@@ -245,6 +245,59 @@ async function run() {
     { option_name: 'Adicionais', item_name: 'Bacon', price: 5.13 }
   ]);
 
+  // createPdvTransactional aceita payload camelCase optionsJson e mantém leitura posterior
+  const pdvCamelOrder = await createPdvTransactional({
+    externalId: 'pdv-options-camel',
+    items: [
+      {
+        product_name: 'Pizza Broto',
+        quantity: 1,
+        unit_price: 32,
+        optionsJson: [
+          { option_name: 'Sabores', item_name: 'Calabresa', price: 12 },
+          { option_name: 'Sabores', item_name: 'Mussarela', price: 10 },
+          { option_name: 'Adicionais', item_name: 'Borda Cheddar', price: 8 }
+        ]
+      }
+    ]
+  });
+  assert.strictEqual(pdvCamelOrder.statusCode, 201);
+  const pdvCamelOrderId = pdvCamelOrder.body.order.id;
+  const pdvCamelPersisted = await db.query('SELECT options_json FROM order_items WHERE order_id = $1', [pdvCamelOrderId]);
+  assert.deepStrictEqual(JSON.parse(pdvCamelPersisted.rows[0].options_json), [
+    { option_name: 'Sabores', item_name: 'Calabresa', price: 12 },
+    { option_name: 'Sabores', item_name: 'Mussarela', price: 10 },
+    { option_name: 'Adicionais', item_name: 'Borda Cheddar', price: 8 }
+  ]);
+
+  const pdvCamelGetRes = await invoke(ordersController.getOrder, {
+    loja: { id: 'loja-1' },
+    params: { id: pdvCamelOrderId }
+  });
+  assert.strictEqual(pdvCamelGetRes.statusCode, 200);
+  assert.deepStrictEqual(pdvCamelGetRes.body.items[0].options, [
+    { option_name: 'Sabores', item_name: 'Calabresa', price: 12 },
+    { option_name: 'Sabores', item_name: 'Mussarela', price: 10 },
+    { option_name: 'Adicionais', item_name: 'Borda Cheddar', price: 8 }
+  ]);
+  assert.deepStrictEqual(pdvCamelGetRes.body.items[0].options_json, pdvCamelGetRes.body.items[0].options);
+  assert.deepStrictEqual(pdvCamelGetRes.body.items[0].optionsJson, pdvCamelGetRes.body.items[0].options);
+
+  const pdvCamelListRes = await invoke(ordersController.listOrders, {
+    loja: { id: 'loja-1' },
+    query: { include: 'items', q: 'pdv-options-camel' }
+  });
+  assert.strictEqual(pdvCamelListRes.statusCode, 200);
+  const pdvCamelListedOrder = pdvCamelListRes.body.find(order => order.id === pdvCamelOrderId);
+  assert.ok(pdvCamelListedOrder, 'pedido pdv-options-camel deve aparecer no listOrders include=items');
+  assert.deepStrictEqual(pdvCamelListedOrder.items[0].options, [
+    { option_name: 'Sabores', item_name: 'Calabresa', price: 12 },
+    { option_name: 'Sabores', item_name: 'Mussarela', price: 10 },
+    { option_name: 'Adicionais', item_name: 'Borda Cheddar', price: 8 }
+  ]);
+  assert.deepStrictEqual(pdvCamelListedOrder.items[0].options_json, pdvCamelListedOrder.items[0].options);
+  assert.deepStrictEqual(pdvCamelListedOrder.items[0].optionsJson, pdvCamelListedOrder.items[0].options);
+
   // createOrder aceita shape agrupado (grupo + items)
   const groupedOrder = await createOrder({
     externalId: 'opt-grouped-items',
