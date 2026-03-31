@@ -245,6 +245,95 @@ async function run() {
     { option_name: 'Adicionais', item_name: 'Bacon', price: 5.13 }
   ]);
 
+  // createOrder aceita shape agrupado (grupo + items)
+  const groupedOrder = await createOrder({
+    externalId: 'opt-grouped-items',
+    items: [
+      {
+        product_name: 'Pizza',
+        quantity: 1,
+        unit_price: 40,
+        options: [
+          {
+            name: 'Sabores',
+            items: [
+              { name: 'calabresa', price: 35 },
+              { name: 'mussarela', price: 50 }
+            ]
+          },
+          {
+            name: 'Adicionais',
+            items: [
+              { name: 'aaaa', price: 10 }
+            ]
+          }
+        ]
+      }
+    ]
+  });
+  assert.strictEqual(groupedOrder.statusCode, 201);
+  const groupedOrderId = groupedOrder.body.order.id;
+  const groupedPersisted = await db.query('SELECT options_json FROM order_items WHERE order_id = $1', [groupedOrderId]);
+  assert.deepStrictEqual(JSON.parse(groupedPersisted.rows[0].options_json), [
+    { option_name: 'Sabores', item_name: 'calabresa', price: 35 },
+    { option_name: 'Sabores', item_name: 'mussarela', price: 50 },
+    { option_name: 'Adicionais', item_name: 'aaaa', price: 10 }
+  ]);
+
+  // createOrder aceita shape selected_items
+  const selectedItemsOrder = await createOrder({
+    externalId: 'opt-selected-items',
+    items: [
+      {
+        product_name: 'Pizza',
+        quantity: 1,
+        unit_price: 30,
+        options: [
+          {
+            group_name: 'Sabores',
+            selected_items: [
+              { item_name: 'calabresa', price: 35 }
+            ]
+          }
+        ]
+      }
+    ]
+  });
+  assert.strictEqual(selectedItemsOrder.statusCode, 201);
+  const selectedItemsOrderId = selectedItemsOrder.body.order.id;
+  const selectedPersisted = await db.query('SELECT options_json FROM order_items WHERE order_id = $1', [selectedItemsOrderId]);
+  assert.deepStrictEqual(JSON.parse(selectedPersisted.rows[0].options_json), [
+    { option_name: 'Sabores', item_name: 'calabresa', price: 35 }
+  ]);
+
+  // createOrder aceita container com options
+  const containerOrder = await createOrder({
+    externalId: 'opt-container',
+    items: [
+      {
+        product_name: 'Pizza',
+        quantity: 1,
+        unit_price: 30,
+        options: {
+          options: [
+            {
+              option_name: 'Sabores',
+              items: [
+                { name: 'calabresa', price: 35 }
+              ]
+            }
+          ]
+        }
+      }
+    ]
+  });
+  assert.strictEqual(containerOrder.statusCode, 201);
+  const containerOrderId = containerOrder.body.order.id;
+  const containerPersisted = await db.query('SELECT options_json FROM order_items WHERE order_id = $1', [containerOrderId]);
+  assert.deepStrictEqual(JSON.parse(containerPersisted.rows[0].options_json), [
+    { option_name: 'Sabores', item_name: 'calabresa', price: 35 }
+  ]);
+
   // registro antigo com options_json string/JSON parcial continua legível
   const legacyManualOrderId = 'legacy-manual-order';
   await db.query(
@@ -301,6 +390,53 @@ async function run() {
   assert.deepStrictEqual(getItem.options, getItem.options_json);
   assert.deepStrictEqual(getItem.options, listedItem.options);
   getItem.options.forEach(assertFlatOptionShape);
+
+  // cenário real de pizza no PDV mantém opções após criar e buscar novamente
+  const realPizzaOrder = await createPdvTransactional({
+    externalId: 'pdv-real-pizza',
+    items: [
+      {
+        product_name: 'Pizza Família',
+        quantity: 1,
+        unit_price: 95,
+        options: [
+          {
+            name: 'Sabores',
+            items: [
+              { name: 'calabresa', price: 35 },
+              { name: 'mussarela', price: 50 }
+            ]
+          },
+          {
+            name: 'Adicionais',
+            items: [
+              { name: 'aaaa', price: 10 }
+            ]
+          }
+        ]
+      }
+    ]
+  });
+  assert.strictEqual(realPizzaOrder.statusCode, 201);
+  const realPizzaOrderId = realPizzaOrder.body.order.id;
+  const realPizzaPersisted = await db.query('SELECT options_json FROM order_items WHERE order_id = $1', [realPizzaOrderId]);
+  assert.deepStrictEqual(JSON.parse(realPizzaPersisted.rows[0].options_json), [
+    { option_name: 'Sabores', item_name: 'calabresa', price: 35 },
+    { option_name: 'Sabores', item_name: 'mussarela', price: 50 },
+    { option_name: 'Adicionais', item_name: 'aaaa', price: 10 }
+  ]);
+
+  const realPizzaGetRes = await invoke(ordersController.getOrder, {
+    loja: { id: 'loja-1' },
+    params: { id: realPizzaOrderId }
+  });
+  assert.strictEqual(realPizzaGetRes.statusCode, 200);
+  assert.deepStrictEqual(realPizzaGetRes.body.items[0].options, [
+    { option_name: 'Sabores', item_name: 'calabresa', price: 35 },
+    { option_name: 'Sabores', item_name: 'mussarela', price: 50 },
+    { option_name: 'Adicionais', item_name: 'aaaa', price: 10 }
+  ]);
+  assert.deepStrictEqual(realPizzaGetRes.body.items[0].options_json, realPizzaGetRes.body.items[0].options);
 
   console.log('orders item options integration tests passed');
 }

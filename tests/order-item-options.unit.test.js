@@ -74,6 +74,54 @@ function run() {
     []
   );
 
+  const grouped = resolveOrderItemOptions({
+    options: [
+      {
+        name: 'Sabores',
+        items: [
+          { name: 'calabresa', price: 35 },
+          { name: 'mussarela', price: 50 }
+        ]
+      },
+      {
+        group_name: 'Adicionais',
+        selected_items: [
+          { item_name: 'aaaa', price: 10 }
+        ]
+      }
+    ]
+  });
+
+  assert.deepStrictEqual(grouped, [
+    { option_name: 'Sabores', item_name: 'calabresa', price: 35 },
+    { option_name: 'Sabores', item_name: 'mussarela', price: 50 },
+    { option_name: 'Adicionais', item_name: 'aaaa', price: 10 }
+  ]);
+
+  const container = resolveOrderItemOptions({
+    options_json: JSON.stringify({
+      options: [
+        {
+          option_id: 'grp-1',
+          option_name: 'Sabores',
+          option_items: [
+            { item_id: 'i-1', name: 'calabresa', additional_price: '35.00' }
+          ]
+        }
+      ]
+    })
+  });
+
+  assert.deepStrictEqual(container, [
+    {
+      option_id: 'grp-1',
+      option_name: 'Sabores',
+      item_id: 'i-1',
+      item_name: 'calabresa',
+      price: 35
+    }
+  ]);
+
   console.log('order item options sanitizer tests passed');
 }
 
