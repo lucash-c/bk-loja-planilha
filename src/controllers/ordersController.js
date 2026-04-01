@@ -888,26 +888,77 @@ async function listOrders(req, res, next) {
       .map(value => value.trim())
       .filter(Boolean);
 
+    const parseBooleanParam = value => {
+      if (value === undefined) return false;
+      return String(value).toLowerCase() === 'true';
+    };
+
+    const parseDateParam = (value, fieldName) => {
+      if (!value) return null;
+      const parsed = new Date(value);
+      if (Number.isNaN(parsed.getTime())) {
+        const error = new Error(`Parâmetro inválido: ${fieldName}`);
+        error.status = 400;
+        throw error;
+      }
+      return parsed.toISOString();
+    };
+
+    const onlyOpen = parseBooleanParam(req.query.only_open);
+    const onlyToday = parseBooleanParam(req.query.only_today);
+    const createdAfter = parseDateParam(req.query.created_after, 'created_after');
+    const updatedAfter = parseDateParam(req.query.updated_after, 'updated_after');
+
+    const filters = ['loja_id = $1'];
+    const params = [lojaId];
+
     const likeValue = `%${q}%`;
-    const usesDuplicatedPlaceholder = db.supportsForUpdate;
-    const customerLikePlaceholder = usesDuplicatedPlaceholder ? '$3' : '$4';
+    const searchParamIndex = params.push(q);
+    const likeExternalIndex = params.push(likeValue);
+    const likeCustomerIndex = db.supportsForUpdate
+      ? likeExternalIndex
+      : params.push(likeValue);
+
+    filters.push(`(
+      $${searchParamIndex} = '' OR
+      external_id ${likeOperator} $${likeExternalIndex} OR
+      customer_name ${likeOperator} $${likeCustomerIndex}
+    )`);
+
+    if (onlyOpen) {
+      const closedStatuses = ['cancelado', 'canceled', 'finalizado', 'entregue', 'concluido', 'concluído'];
+      const placeholders = closedStatuses.map(status => `$${params.push(status)}`).join(',');
+      filters.push(`(status IS NULL OR LOWER(status) NOT IN (${placeholders}))`);
+    }
+
+    if (onlyToday) {
+      const startOfDay = new Date();
+      startOfDay.setUTCHours(0, 0, 0, 0);
+      const startOfNextDay = new Date(startOfDay);
+      startOfNextDay.setUTCDate(startOfNextDay.getUTCDate() + 1);
+      const startIndex = params.push(startOfDay.toISOString());
+      const endIndex = params.push(startOfNextDay.toISOString());
+      filters.push(`created_at >= $${startIndex}`);
+      filters.push(`created_at < $${endIndex}`);
+    }
+
+    if (createdAfter) {
+      filters.push(`created_at >= $${params.push(createdAfter)}`);
+    }
+
+    if (updatedAfter) {
+      filters.push(`created_at >= $${params.push(updatedAfter)}`);
+    }
 
     const { rows } = await db.query(
       `
       SELECT *
       FROM orders
-      WHERE loja_id = $1
-        AND (
-          $2 = '' OR
-          external_id ${likeOperator} $3 OR
-          customer_name ${likeOperator} ${customerLikePlaceholder}
-        )
+      WHERE ${filters.join('\n        AND ')}
       ORDER BY created_at DESC
       LIMIT 200
       `,
-      usesDuplicatedPlaceholder
-        ? [lojaId, q, likeValue]
-        : [lojaId, q, likeValue, likeValue]
+      params
     );
 
     if (!include.includes('items') || rows.length === 0) {
