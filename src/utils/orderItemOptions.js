@@ -1,3 +1,5 @@
+const { pedidoDebugLog } = require('./pedidoDebugLogger');
+
 function isPlainObject(value) {
   if (!value || typeof value !== 'object') return false;
   const prototype = Object.getPrototypeOf(value);
@@ -54,7 +56,7 @@ function readFirstField(objectValue, keys) {
 
 function sanitizeOptionEntry(value) {
   if (!isPlainObject(value)) {
-    console.log('[pedido-debug-api] orderItemOptions:entry-discarded', {
+    pedidoDebugLog('orderItemOptions:entry-discarded', {
       reason: 'entry-not-plain-object',
       value
     });
@@ -81,7 +83,7 @@ function sanitizeOptionEntry(value) {
 
   const hasUsefulMinimumFields = Boolean(sanitized.option_name || sanitized.item_name);
   if (!hasUsefulMinimumFields) {
-    console.log('[pedido-debug-api] orderItemOptions:entry-discarded', {
+    pedidoDebugLog('orderItemOptions:entry-discarded', {
       reason: 'missing-option-name-and-item-name',
       value,
       sanitized
@@ -98,7 +100,7 @@ function normalizeFlatOptionEntry(value) {
 
 function normalizeGroupedOptionEntry(groupValue) {
   if (!isPlainObject(groupValue)) {
-    console.log('[pedido-debug-api] orderItemOptions:entry-discarded', {
+    pedidoDebugLog('orderItemOptions:entry-discarded', {
       reason: 'group-not-plain-object',
       groupValue
     });
@@ -114,7 +116,7 @@ function normalizeGroupedOptionEntry(groupValue) {
 
   if (!Array.isArray(groupedItemsRaw)) {
     if (hasExplicitItemsKey) {
-      console.log('[pedido-debug-api] orderItemOptions:entry-discarded', {
+      pedidoDebugLog('orderItemOptions:entry-discarded', {
         reason: 'group-items-key-not-array',
         groupValue,
         groupedItemsRaw
@@ -123,13 +125,13 @@ function normalizeGroupedOptionEntry(groupValue) {
     }
 
     const maybeFlat = normalizeFlatOptionEntry(groupValue);
-    console.log('[pedido-debug-api] orderItemOptions:group-without-items-array', {
+    pedidoDebugLog('orderItemOptions:group-without-items-array', {
       groupValue,
       maybeFlat
     });
     return maybeFlat ? [maybeFlat] : [];
   }
-  console.log('[pedido-debug-api] orderItemOptions:group-items-detected', {
+  pedidoDebugLog('orderItemOptions:group-items-detected', {
     groupValue,
     groupedItemsRaw
   });
@@ -137,7 +139,7 @@ function normalizeGroupedOptionEntry(groupValue) {
   return groupedItemsRaw
     .map(item => {
       if (!isPlainObject(item)) {
-        console.log('[pedido-debug-api] orderItemOptions:entry-discarded', {
+        pedidoDebugLog('orderItemOptions:entry-discarded', {
           reason: 'group-item-not-plain-object',
           item
         });
@@ -161,7 +163,7 @@ function normalizeGroupedOptionEntry(groupValue) {
 
 function unwrapOptionCandidates(value) {
   if (Array.isArray(value)) {
-    console.log('[pedido-debug-api] orderItemOptions:shape-detected', {
+    pedidoDebugLog('orderItemOptions:shape-detected', {
       shape: 'array',
       value
     });
@@ -169,7 +171,7 @@ function unwrapOptionCandidates(value) {
   }
 
   if (!isPlainObject(value)) {
-    console.log('[pedido-debug-api] orderItemOptions:entry-discarded', {
+    pedidoDebugLog('orderItemOptions:entry-discarded', {
       reason: 'options-root-not-array-or-object',
       value
     });
@@ -179,7 +181,7 @@ function unwrapOptionCandidates(value) {
   for (const key of OPTION_CONTAINER_KEYS) {
     const candidate = value[key];
     if (Array.isArray(candidate)) {
-      console.log('[pedido-debug-api] orderItemOptions:container-detected', {
+      pedidoDebugLog('orderItemOptions:container-detected', {
         containerKey: key,
         value
       });
@@ -187,7 +189,7 @@ function unwrapOptionCandidates(value) {
     }
   }
 
-  console.log('[pedido-debug-api] orderItemOptions:shape-detected', {
+  pedidoDebugLog('orderItemOptions:shape-detected', {
     shape: 'single-object',
     value
   });
@@ -213,14 +215,14 @@ function sanitizeOptionsArray(value) {
    * - Invalid prices (NaN/Infinity/non numeric).
    * - Groups with items key present but non-array (technical garbage).
    */
-  console.log('[pedido-debug-api] orderItemOptions:normalize-input', { value });
+  pedidoDebugLog('orderItemOptions:normalize-input', { value });
   const candidates = unwrapOptionCandidates(value);
   if (!candidates) {
     return null;
   }
 
   const flatCanonical = candidates.flatMap(item => normalizeGroupedOptionEntry(item));
-  console.log('[pedido-debug-api] orderItemOptions:flat-canonical-result', {
+  pedidoDebugLog('orderItemOptions:flat-canonical-result', {
     candidates,
     flatCanonical
   });
@@ -243,7 +245,7 @@ function parseOptionsJson(value) {
 }
 
 function resolveOrderItemOptions(item = {}) {
-  console.log('[pedido-debug-api] orderItemOptions:resolve-start', {
+  pedidoDebugLog('orderItemOptions:resolve-start', {
     item,
     options: item.options,
     options_json: item.options_json,
@@ -251,7 +253,7 @@ function resolveOrderItemOptions(item = {}) {
   });
   const options = sanitizeOptionsArray(item.options);
   if (options) {
-    console.log('[pedido-debug-api] orderItemOptions:resolve-result', {
+    pedidoDebugLog('orderItemOptions:resolve-result', {
       source: 'item.options',
       options
     });
@@ -262,7 +264,7 @@ function resolveOrderItemOptions(item = {}) {
   const parsedCamelOptionsJson = parseOptionsJson(item.optionsJson);
   const parsedLegacyOptions = parsedOptionsJson || parsedCamelOptionsJson;
   if (!parsedLegacyOptions) {
-    console.log('[pedido-debug-api] orderItemOptions:resolve-result', {
+    pedidoDebugLog('orderItemOptions:resolve-result', {
       source: 'none',
       options: []
     });
@@ -270,7 +272,7 @@ function resolveOrderItemOptions(item = {}) {
   }
 
   const normalizedFromJson = sanitizeOptionsArray(parsedLegacyOptions) || [];
-  console.log('[pedido-debug-api] orderItemOptions:resolve-result', {
+  pedidoDebugLog('orderItemOptions:resolve-result', {
     source: parsedOptionsJson ? 'item.options_json' : 'item.optionsJson',
     parsedOptionsJson: parsedLegacyOptions,
     options: normalizedFromJson
@@ -309,7 +311,7 @@ function normalizeItemForResponse(item = {}) {
     ? item.options_json
     : item.optionsJson;
   const options = deserializeOptions(rawOptionsJson);
-  console.log('[pedido-debug-api] orderItemOptions:normalizeItemForResponse', {
+  pedidoDebugLog('orderItemOptions:normalizeItemForResponse', {
     item,
     options_json_before_parse: rawOptionsJson,
     parsedOptions: options
