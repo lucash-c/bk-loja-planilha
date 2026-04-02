@@ -108,8 +108,20 @@ function normalizeGroupedOptionEntry(groupValue) {
   const groupName = sanitizeStringField(readFirstField(groupValue, OPTION_GROUP_NAME_KEYS));
   const groupId = sanitizeStringField(readFirstField(groupValue, OPTION_GROUP_ID_KEYS));
   const groupedItemsRaw = readFirstField(groupValue, OPTION_ITEM_ARRAY_KEYS);
+  const hasExplicitItemsKey = OPTION_ITEM_ARRAY_KEYS.some(key =>
+    Object.prototype.hasOwnProperty.call(groupValue, key)
+  );
 
   if (!Array.isArray(groupedItemsRaw)) {
+    if (hasExplicitItemsKey) {
+      console.log('[pedido-debug-api] orderItemOptions:entry-discarded', {
+        reason: 'group-items-key-not-array',
+        groupValue,
+        groupedItemsRaw
+      });
+      return [];
+    }
+
     const maybeFlat = normalizeFlatOptionEntry(groupValue);
     console.log('[pedido-debug-api] orderItemOptions:group-without-items-array', {
       groupValue,
@@ -183,6 +195,24 @@ function unwrapOptionCandidates(value) {
 }
 
 function sanitizeOptionsArray(value) {
+  /**
+   * Accepted root shapes (compatibility mode):
+   * 1) Flat array: [{ option_id, option_name, item_id, item_name, price }]
+   * 2) Grouped array: [{ name/group_name, items/selected_items/...: [...] }]
+   * 3) Container object: { options|option_groups|groups|selected_options: [...] }
+   * 4) Single flat object: { option_name, item_name, ... }
+   *
+   * Precedence and predictability rules:
+   * - Root container keys are checked in OPTION_CONTAINER_KEYS order.
+   * - Group fields are read by ordered key lists (readFirstField).
+   * - Group entries with an explicit items key MUST provide an array.
+   *
+   * Rejected values:
+   * - Non-plain objects/functions/classes at any level.
+   * - Entries without option_name AND item_name after sanitization.
+   * - Invalid prices (NaN/Infinity/non numeric).
+   * - Groups with items key present but non-array (technical garbage).
+   */
   console.log('[pedido-debug-api] orderItemOptions:normalize-input', { value });
   const candidates = unwrapOptionCandidates(value);
   if (!candidates) {
