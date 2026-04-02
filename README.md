@@ -482,8 +482,23 @@ Painel admin (JWT):
 
 - `GET /` lista pedidos
 - `GET /?include=items` lista pedidos já com itens
+- `GET /?only_open=true` retorna apenas pedidos em aberto (não cancelados/finalizados/entregues/concluídos)
+- `GET /?only_today=true` retorna apenas pedidos criados no dia UTC atual
+- `GET /?created_after=<ISO-8601>` retorna pedidos com `created_at >= created_after`
 - `GET /:id` (id interno ou `external_id`)
 - `PUT /:id/status`
+
+Filtros podem ser combinados para chamadas mais leves no frontend, por exemplo:
+
+- `GET /api/orders?only_open=true&only_today=true`
+- `GET /api/orders?only_open=true&created_after=2026-04-02T00:00:00.000Z`
+- `GET /api/orders?include=items&only_open=true&only_today=true&created_after=2026-04-01T12:00:00.000Z`
+
+Compatibilidade:
+
+- Se os filtros não forem enviados, a resposta permanece igual ao comportamento anterior.
+- Enviar `only_open=false` e/ou `only_today=false` equivale a não aplicar filtro.
+- A semântica de status existente não muda: o filtro `only_open=true` apenas exclui estados de encerramento já reconhecidos.
 
 
 Validação de forma de pagamento no pedido:

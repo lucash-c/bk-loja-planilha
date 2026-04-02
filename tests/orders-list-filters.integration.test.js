@@ -96,6 +96,20 @@ async function run() {
   assert.ok(Array.isArray(listNoItemsRes.body));
   assert.ok(listNoItemsRes.body.length >= 4);
   assert.strictEqual(listNoItemsRes.body[0].items, undefined);
+  const baselineOrderIds = listNoItemsRes.body.map(order => order.id).sort();
+
+  const explicitFalseFiltersRes = await invoke(ordersController.listOrders, {
+    loja: { id: 'loja-1' },
+    query: {
+      only_open: 'false',
+      only_today: 'false'
+    }
+  });
+  assert.strictEqual(explicitFalseFiltersRes.statusCode, 200);
+  assert.deepStrictEqual(
+    explicitFalseFiltersRes.body.map(order => order.id).sort(),
+    baselineOrderIds
+  );
 
   const listWithItemsRes = await invoke(ordersController.listOrders, {
     loja: { id: 'loja-1' },
@@ -112,6 +126,7 @@ async function run() {
     query: { only_today: 'true' }
   });
   assert.strictEqual(onlyTodayRes.statusCode, 200);
+  assert.ok(onlyTodayRes.body.length > 0);
   assert.ok(onlyTodayRes.body.every(order => order.id !== 'o-open-yesterday' && order.id !== 'o-old'));
 
   const onlyOpenRes = await invoke(ordersController.listOrders, {
@@ -128,6 +143,7 @@ async function run() {
   assert.strictEqual(createdAfterRes.statusCode, 200);
   assert.ok(createdAfterRes.body.every(order => new Date(order.created_at).getTime() >= new Date(yesterday).getTime()));
   assert.ok(createdAfterRes.body.find(order => order.id === 'o-open-today'));
+  assert.ok(!createdAfterRes.body.find(order => order.id === 'o-old'));
 
   const updatedAfterRes = await invoke(ordersController.listOrders, {
     loja: { id: 'loja-1' },
@@ -146,8 +162,10 @@ async function run() {
     }
   });
   assert.strictEqual(combinedFiltersWithItemsRes.statusCode, 200);
-  assert.ok(combinedFiltersWithItemsRes.body.length > 0);
-  assert.ok(combinedFiltersWithItemsRes.body.every(order => ['o-open-today'].includes(order.id)));
+  assert.deepStrictEqual(
+    combinedFiltersWithItemsRes.body.map(order => order.id),
+    ['o-open-today']
+  );
   assert.ok(combinedFiltersWithItemsRes.body.every(order => Array.isArray(order.items)));
 
   console.log('All order list filter integration tests passed');
