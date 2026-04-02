@@ -501,6 +501,9 @@ Compatibilidade:
 - A semântica de status existente não muda: o filtro `only_open=true` apenas exclui estados de encerramento já reconhecidos.
 
 
+Contrato técnico de payload (order / item / options):
+- Veja `docs/order-payload-contract.md` para shape canônico de escrita/leitura, formatos legados aceitos e regras de fallback/precedência.
+
 Validação de forma de pagamento no pedido:
 - Ao enviar `payment_method` em pedidos públicos (`POST /api/orders`) ou PDV transacional (`POST /api/orders/pdv-transactional`), o valor deve existir como método ativo da loja em `store_payment_methods`.
 - Se o método não estiver ativo/cadastrado, a API retorna `400` com mensagem clara.
