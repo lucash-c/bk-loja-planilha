@@ -189,6 +189,37 @@ async function isRealtimeEnabledForStore(lojaId) {
   }
 }
 
+let ordersUpdatedAtSupportCache = null;
+
+async function hasReliableOrdersUpdatedAtColumn() {
+  if (ordersUpdatedAtSupportCache !== null) {
+    return ordersUpdatedAtSupportCache;
+  }
+
+  try {
+    if (db.supportsForUpdate) {
+      const result = await db.query(
+        `
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_name = 'orders'
+          AND column_name = 'updated_at'
+        LIMIT 1
+        `
+      );
+      ordersUpdatedAtSupportCache = result.rows.length > 0;
+      return ordersUpdatedAtSupportCache;
+    }
+
+    const result = await db.query(`PRAGMA table_info('orders')`);
+    ordersUpdatedAtSupportCache = result.rows.some(column => column.name === 'updated_at');
+    return ordersUpdatedAtSupportCache;
+  } catch (err) {
+    ordersUpdatedAtSupportCache = false;
+    return false;
+  }
+}
+
 /**
  * CREATE ORDER
  */
@@ -908,6 +939,9 @@ async function listOrders(req, res, next) {
     const onlyToday = parseBooleanParam(req.query.only_today);
     const createdAfter = parseDateParam(req.query.created_after, 'created_after');
     const updatedAfter = parseDateParam(req.query.updated_after, 'updated_after');
+    const hasUpdatedAt = updatedAfter
+      ? await hasReliableOrdersUpdatedAtColumn()
+      : false;
 
     const filters = ['loja_id = $1'];
     const params = [lojaId];
@@ -946,8 +980,9 @@ async function listOrders(req, res, next) {
       filters.push(`created_at >= $${params.push(createdAfter)}`);
     }
 
-    if (updatedAfter) {
-      filters.push(`created_at >= $${params.push(updatedAfter)}`);
+    // Segurança/retrocompatibilidade: só usa updated_after quando a base possui updated_at em orders.
+    if (updatedAfter && hasUpdatedAt) {
+      filters.push(`updated_at >= $${params.push(updatedAfter)}`);
     }
 
     const { rows } = await db.query(
