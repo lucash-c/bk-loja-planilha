@@ -1,4 +1,7 @@
-# Contrato técnico de payload de pedidos (order / order item / item options)
+# Contrato técnico de payload de pedidos (legado)
+
+> ⚠️ Documento mantido por compatibilidade histórica.  
+> A referência canônica atual está em `docs/order-contract.md`.
 
 > Objetivo: formalizar o contrato atualmente aceito em produção sem quebrar clientes legados (frontend público, PDV e integrações antigas).
 
