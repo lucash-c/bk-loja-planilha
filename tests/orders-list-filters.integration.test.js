@@ -71,12 +71,18 @@ async function run() {
   await db.query('INSERT INTO lojas (id, public_key, name, is_active) VALUES ($1,$2,$3,$4)', ['loja-1', 'key-1', 'Loja Teste', 1]);
 
   const now = new Date();
-  const twoHoursAgo = new Date(now.getTime() - 2 * 60 * 60 * 1000).toISOString();
-  const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
-  const threeDaysAgo = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000).toISOString();
+  const startOfTodayUtc = new Date(Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate(),
+    0, 0, 0, 0
+  ));
+  const todayMidday = new Date(startOfTodayUtc.getTime() + 12 * 60 * 60 * 1000).toISOString();
+  const yesterday = new Date(startOfTodayUtc.getTime() - 24 * 60 * 60 * 1000).toISOString();
+  const threeDaysAgo = new Date(startOfTodayUtc.getTime() - 3 * 24 * 60 * 60 * 1000).toISOString();
 
-  await seedOrder({ id: 'o-open-today', externalId: 'A1', customerName: 'Alice', status: 'em preparo', createdAt: twoHoursAgo });
-  await seedOrder({ id: 'o-cancel-today', externalId: 'A2', customerName: 'Bob', status: 'cancelado', createdAt: twoHoursAgo });
+  await seedOrder({ id: 'o-open-today', externalId: 'A1', customerName: 'Alice', status: 'em preparo', createdAt: todayMidday });
+  await seedOrder({ id: 'o-cancel-today', externalId: 'A2', customerName: 'Bob', status: 'cancelado', createdAt: todayMidday });
   await seedOrder({ id: 'o-open-yesterday', externalId: 'A3', customerName: 'Carol', status: 'aguardando aceite', createdAt: yesterday });
   await seedOrder({ id: 'o-old', externalId: 'A4', customerName: 'Daniel', status: 'entregue', createdAt: threeDaysAgo });
 
@@ -122,6 +128,27 @@ async function run() {
   assert.strictEqual(createdAfterRes.statusCode, 200);
   assert.ok(createdAfterRes.body.every(order => new Date(order.created_at).getTime() >= new Date(yesterday).getTime()));
   assert.ok(createdAfterRes.body.find(order => order.id === 'o-open-today'));
+
+  const updatedAfterRes = await invoke(ordersController.listOrders, {
+    loja: { id: 'loja-1' },
+    query: { updated_after: yesterday }
+  });
+  assert.strictEqual(updatedAfterRes.statusCode, 200);
+  assert.strictEqual(updatedAfterRes.body.length, listNoItemsRes.body.length);
+
+  const combinedFiltersWithItemsRes = await invoke(ordersController.listOrders, {
+    loja: { id: 'loja-1' },
+    query: {
+      include: 'items',
+      only_open: 'true',
+      only_today: 'true',
+      created_after: yesterday
+    }
+  });
+  assert.strictEqual(combinedFiltersWithItemsRes.statusCode, 200);
+  assert.ok(combinedFiltersWithItemsRes.body.length > 0);
+  assert.ok(combinedFiltersWithItemsRes.body.every(order => ['o-open-today'].includes(order.id)));
+  assert.ok(combinedFiltersWithItemsRes.body.every(order => Array.isArray(order.items)));
 
   console.log('All order list filter integration tests passed');
 }
