@@ -55,8 +55,12 @@ Shape canônico de escrita:
 Normalizações aplicadas pelo backend:
 - `quantity` default = `1` quando ausente.
 - `unit_price` default = `0` quando ausente.
-- `total_price` persistido = `quantity * unit_price`.
+- `total_price` persistido = `item.total_price` válido informado **ou** `quantity * (unit_price + soma(options[].price))`.
 - `observation` pode vir por aliases legados (`observacao`, `obs`, `observação`) e é consolidado em `observation`.
+
+Regra de total do pedido:
+- `orders.total` persistido = `total` válido informado **ou** `soma(order_items.total_price)` + `delivery_fee` quando `order_type = entrega`.
+- Quando `order_type` é `retirada`/`local`, `delivery_fee` não é somado automaticamente no total calculado.
 
 ### 1.3 `item options` (request)
 

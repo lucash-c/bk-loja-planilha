@@ -9,6 +9,10 @@ const {
   resolveOrderItemOptions,
   normalizeItemForResponse
 } = require('../utils/orderItemOptions');
+const {
+  normalizeMoney,
+  calculateOrderMonetarySummary
+} = require('../utils/orderPricing');
 const { pedidoDebugLog } = require('../utils/pedidoDebugLogger');
 
 function stableStringify(value) {
@@ -33,12 +37,6 @@ function buildRequestHash(payload) {
 
 function getIdempotencyKey(req) {
   return req.headers['idempotency-key'] || req.headers['x-idempotency-key'] || null;
-}
-
-function normalizeMoney(value) {
-  const num = Number(value);
-  if (!Number.isFinite(num) || num < 0) return null;
-  return Number(num.toFixed(2));
 }
 
 async function validateStorePaymentMethod({ lojaId, paymentMethod, tx = db }) {
@@ -232,21 +230,16 @@ function serializeOrderItemOptions(item) {
   };
 }
 
-function normalizeOrderItem(item, { normalizeUnitPrice, normalizeTotalPrice } = {}) {
-  const quantity = item.quantity || 1;
-  const rawUnitPrice = item.unit_price || 0;
-  const unitPrice = normalizeUnitPrice ? normalizeUnitPrice(rawUnitPrice) : rawUnitPrice;
-  const rawTotalPrice = quantity * unitPrice;
-  const totalPrice = normalizeTotalPrice ? normalizeTotalPrice(rawTotalPrice) : rawTotalPrice;
+function normalizeOrderItem(item, { quantity, unitPrice, totalPrice } = {}) {
   const observation =
     item.observation || item.observacao || item.obs || item.observação || null;
   const { resolvedOptions, optionsJson } = serializeOrderItemOptions(item);
 
   return {
     product_name: item.product_name,
-    quantity,
-    unit_price: unitPrice,
-    total_price: totalPrice,
+    quantity: typeof quantity === 'number' ? quantity : item.quantity || 1,
+    unit_price: typeof unitPrice === 'number' ? unitPrice : item.unit_price || 0,
+    total_price: typeof totalPrice === 'number' ? totalPrice : 0,
     observation,
     options_json: optionsJson,
     resolvedOptions
@@ -305,6 +298,10 @@ async function createOrder(req, res, next) {
       return res.status(400).json({ error: 'Tipo de pedido inválido' });
     }
 
+    if (typeof total !== 'undefined' && normalizeMoney(total) === null) {
+      return res.status(400).json({ error: 'Total inválido' });
+    }
+
     const paymentMethodError = await validateStorePaymentMethod({
       lojaId,
       paymentMethod: payment_method
@@ -318,6 +315,21 @@ async function createOrder(req, res, next) {
       lojaId,
       orderId: id
     });
+
+    const normalizedItemsWithOptions = items.map(item => {
+      const { resolvedOptions } = serializeOrderItemOptions(item);
+      return {
+        ...item,
+        resolvedOptions
+      };
+    });
+    const monetarySummary = calculateOrderMonetarySummary({
+      items: normalizedItemsWithOptions,
+      total,
+      delivery_fee,
+      order_type: order_type || 'entrega'
+    });
+    let persistedItems = [];
 
     await db.withTransaction(async tx => {
       await tx.query(
@@ -349,18 +361,19 @@ async function createOrder(req, res, next) {
           order_type || 'entrega',
           delivery_address || null,
           delivery_distance_km || null,
-          delivery_fee ?? 0,
+          monetarySummary.delivery_fee,
           delivery_estimated_time_minutes || null,
-          total ?? 0,
+          monetarySummary.order_total,
           payment_method || null,
           origin || 'cliente',
           notes || null
         ]
       );
 
+      persistedItems = [];
       const itemValues = [];
       const insertItemPayload = [];
-      const itemPlaceholders = items.map((it, index) => {
+      const itemPlaceholders = monetarySummary.items.map((it, index) => {
         pedidoDebugLog('createOrder:item-before-normalize', {
           orderId: id,
           index,
@@ -369,7 +382,11 @@ async function createOrder(req, res, next) {
           options_json: it?.options_json,
           keys: Object.keys(it || {})
         });
-        const normalizedItem = normalizeOrderItem(it);
+        const normalizedItem = normalizeOrderItem(it, {
+          quantity: it.quantity,
+          unitPrice: it.unit_price,
+          totalPrice: it.total_price
+        });
         pedidoDebugLog('createOrder:item-after-normalize', {
           orderId: id,
           index,
@@ -389,6 +406,7 @@ async function createOrder(req, res, next) {
           insertRowPayload.options_json
         );
         insertItemPayload.push(insertRowPayload);
+        persistedItems.push(normalizedItem);
         pedidoDebugLog('insert-order-items:row', insertRowPayload);
 
         return `($${baseIndex + 1},$${baseIndex + 2},$${baseIndex + 3},$${baseIndex + 4},$${baseIndex + 5},$${baseIndex + 6},$${baseIndex + 7})`;
@@ -452,15 +470,15 @@ async function createOrder(req, res, next) {
         order_type: order_type || 'entrega',
         delivery_address: delivery_address || null,
         delivery_distance_km: delivery_distance_km || null,
-        delivery_fee: delivery_fee ?? 0,
+        delivery_fee: monetarySummary.delivery_fee,
         delivery_estimated_time_minutes: delivery_estimated_time_minutes || null,
-        total: total ?? 0,
+        total: monetarySummary.order_total,
         payment_method: payment_method || null,
         origin: origin || 'cliente',
         payment_status: 'pending',
         status: 'new',
         notes: notes || null,
-        items
+        items: persistedItems
       }
     });
 
@@ -690,7 +708,7 @@ async function createPdvTransactional(req, res, next) {
         }
 
         const normalizedTotal = normalizeMoney(total);
-        if (normalizedTotal === null) {
+        if (typeof total !== 'undefined' && normalizedTotal === null) {
           return {
             statusCode: 400,
             payload: { error: 'Total inválido' },
@@ -720,6 +738,19 @@ async function createPdvTransactional(req, res, next) {
 
         const forUpdate = getForUpdateClause();
         const orderId = uuidv4();
+        const normalizedItemsWithOptions = items.map(item => {
+          const { resolvedOptions } = serializeOrderItemOptions(item);
+          return {
+            ...item,
+            resolvedOptions
+          };
+        });
+        const monetarySummary = calculateOrderMonetarySummary({
+          items: normalizedItemsWithOptions,
+          total,
+          delivery_fee,
+          order_type: order_type || 'entrega'
+        });
         pedidoDebugLog('createPdvTransactional:order-id-generated', {
           lojaId,
           orderId
@@ -789,9 +820,9 @@ async function createPdvTransactional(req, res, next) {
               order_type || 'entrega',
               delivery_address || null,
               delivery_distance_km || null,
-              delivery_fee ?? 0,
+              monetarySummary.delivery_fee,
               delivery_estimated_time_minutes || null,
-              normalizedTotal,
+              monetarySummary.order_total,
               payment_method || null,
               'pdv',
               'em preparo',
@@ -801,7 +832,8 @@ async function createPdvTransactional(req, res, next) {
 
           const itemValues = [];
           const insertItemPayload = [];
-          const itemPlaceholders = items.map((it, index) => {
+          const persistedItems = [];
+          const itemPlaceholders = monetarySummary.items.map((it, index) => {
             pedidoDebugLog('createPdvTransactional:item-before-normalize', {
               orderId,
               index,
@@ -811,8 +843,9 @@ async function createPdvTransactional(req, res, next) {
               keys: Object.keys(it || {})
             });
             const normalizedItem = normalizeOrderItem(it, {
-              normalizeUnitPrice: value => Number(value),
-              normalizeTotalPrice: value => Number(Number(value).toFixed(2))
+              quantity: it.quantity,
+              unitPrice: it.unit_price,
+              totalPrice: it.total_price
             });
             pedidoDebugLog('createPdvTransactional:item-after-normalize', {
               orderId,
@@ -833,6 +866,7 @@ async function createPdvTransactional(req, res, next) {
               insertRowPayload.options_json
             );
             insertItemPayload.push(insertRowPayload);
+            persistedItems.push(normalizedItem);
             pedidoDebugLog('insert-order-items:row', insertRowPayload);
 
             return `($${baseIndex + 1},$${baseIndex + 2},$${baseIndex + 3},$${baseIndex + 4},$${baseIndex + 5},$${baseIndex + 6},$${baseIndex + 7})`;
@@ -896,7 +930,7 @@ async function createPdvTransactional(req, res, next) {
               customer_name: customer_name || null,
               customer_whatsapp: customer_whatsapp || null,
               status: 'em preparo',
-              total: normalizedTotal,
+              total: monetarySummary.order_total,
               created_at: new Date().toISOString()
             },
             payload: {
@@ -907,8 +941,8 @@ async function createPdvTransactional(req, res, next) {
                 external_id: external_id || null,
                 status: 'em preparo',
                 origin: 'pdv',
-                total: normalizedTotal,
-                items
+                total: monetarySummary.order_total,
+                items: persistedItems
               },
               debited_credits: CREDIT_COST_PER_ORDER,
               remaining_credits: Number(remainingCredits.toFixed(2))

@@ -119,6 +119,7 @@ async function run() {
   });
 
   assert.strictEqual(canonicalCreate.statusCode, 201);
+  assert.strictEqual(canonicalCreate.body.order.total, 42);
   const canonicalOrderId = canonicalCreate.body.order.id;
 
   const canonicalStoredItems = await db.query('SELECT observation, options_json FROM order_items WHERE order_id = $1', [canonicalOrderId]);
@@ -132,6 +133,9 @@ async function run() {
       price: 1.24
     }
   ]);
+  const canonicalStoredTotal = await db.query('SELECT total, delivery_fee FROM orders WHERE id = $1', [canonicalOrderId]);
+  assert.strictEqual(Number(canonicalStoredTotal.rows[0].total), 42);
+  assert.strictEqual(Number(canonicalStoredTotal.rows[0].delivery_fee), 0);
 
   // 2) fallback legacy: observation aliases + options_json/optionsJson + grouped/container
   const legacyCreate = await createOrder({
@@ -181,6 +185,70 @@ async function run() {
   assert.deepStrictEqual(JSON.parse(legacyItemsStored.rows[1].options_json), [
     { option_name: 'Adicionais', item_name: 'Bacon', price: 5.13 }
   ]);
+
+  // 2.1) sem total informado, backend calcula item total com opções e aplica delivery_fee em entrega
+  const calculatedPublicCreate = await createOrder({
+    external_id: 'contract-calculated-public',
+    order_type: 'entrega',
+    delivery_fee: 8,
+    items: [
+      {
+        product_name: 'Pizza Margherita',
+        quantity: 2,
+        unit_price: 40,
+        options: [
+          { option_name: 'Borda', item_name: 'Catupiry', price: 5 },
+          { option_name: 'Extra', item_name: 'Queijo', price: 3.5 }
+        ]
+      }
+    ]
+  });
+  assert.strictEqual(calculatedPublicCreate.statusCode, 201);
+  assert.strictEqual(calculatedPublicCreate.body.order.total, 105);
+  const calculatedPublicItem = await db.query(
+    'SELECT total_price FROM order_items WHERE order_id = $1',
+    [calculatedPublicCreate.body.order.id]
+  );
+  assert.strictEqual(Number(calculatedPublicItem.rows[0].total_price), 97);
+
+  // 2.2) pedido não-entrega não soma delivery_fee no total
+  const retiradaCreate = await createOrder({
+    external_id: 'contract-retirada-no-delivery-fee',
+    order_type: 'retirada',
+    delivery_fee: 9,
+    items: [
+      {
+        product_name: 'Hambúrguer',
+        quantity: 1,
+        unit_price: 25
+      }
+    ]
+  });
+  assert.strictEqual(retiradaCreate.statusCode, 201);
+  assert.strictEqual(retiradaCreate.body.order.total, 25);
+  const retiradaStored = await db.query('SELECT total, delivery_fee FROM orders WHERE id = $1', [retiradaCreate.body.order.id]);
+  assert.strictEqual(Number(retiradaStored.rows[0].total), 25);
+  assert.strictEqual(Number(retiradaStored.rows[0].delivery_fee), 9);
+
+  // 2.3) legado compatível: total informado continua tendo precedência
+  const legacyWithTotalCreate = await createOrder({
+    external_id: 'contract-legacy-total-precedence',
+    order_type: 'entrega',
+    delivery_fee: 10,
+    total: 123.45,
+    items: [
+      {
+        product_name: 'Prato Feito',
+        quantity: 1,
+        unit_price: 30,
+        options: [{ option_name: 'Adicional', item_name: 'Ovo', price: 2 }]
+      }
+    ]
+  });
+  assert.strictEqual(legacyWithTotalCreate.statusCode, 201);
+  assert.strictEqual(legacyWithTotalCreate.body.order.total, 123.45);
+  const legacyWithTotalStored = await db.query('SELECT total FROM orders WHERE id = $1', [legacyWithTotalCreate.body.order.id]);
+  assert.strictEqual(Number(legacyWithTotalStored.rows[0].total), 123.45);
 
   // 3) precedência: options válido vence options_json/optionsJson
   const precedenceCreate = await createOrder({
@@ -258,6 +326,7 @@ async function run() {
   assert.strictEqual(pdvCreate.statusCode, 201);
   assert.strictEqual(pdvCreate.body.order.origin, 'pdv');
   assert.strictEqual(pdvCreate.body.order.status, 'em preparo');
+  assert.strictEqual(pdvCreate.body.order.total, 80);
 
   const pdvStoredItems = await db.query(
     'SELECT observation, options_json FROM order_items WHERE order_id = $1',
@@ -268,6 +337,34 @@ async function run() {
     { option_name: 'Sabores', item_name: 'Calabresa', price: 5 },
     { option_name: 'Sabores', item_name: 'Mussarela', price: 5 }
   ]);
+
+  // 6) PDV sem total informado também calcula com opções + delivery_fee quando entrega
+  const pdvCalculatedCreate = await invoke(ordersController.createPdvTransactional, {
+    headers: { 'x-loja-key': 'loja-key' },
+    body: {
+      external_id: 'contract-pdv-calculated',
+      order_type: 'entrega',
+      delivery_fee: 7,
+      items: [
+        {
+          product_name: 'Pizza Família',
+          quantity: 1,
+          unit_price: 70,
+          options: [
+            { option_name: 'Adicionais', item_name: 'Bacon', price: 5 },
+            { option_name: 'Adicionais', item_name: 'Catupiry', price: 3 }
+          ]
+        }
+      ]
+    }
+  });
+  assert.strictEqual(pdvCalculatedCreate.statusCode, 201);
+  assert.strictEqual(pdvCalculatedCreate.body.order.total, 85);
+  const pdvCalculatedStored = await db.query(
+    'SELECT total FROM orders WHERE id = $1',
+    [pdvCalculatedCreate.body.order.id]
+  );
+  assert.strictEqual(Number(pdvCalculatedStored.rows[0].total), 85);
 
   const pdvGetById = await invoke(ordersController.getOrder, {
     loja: { id: 'loja-1' },
