@@ -226,6 +226,56 @@ async function run() {
   assert.ok(listedCanonical, 'pedido canônico deve existir em listOrders');
   listedCanonical.items.forEach(assertCanonicalItemReadShape);
 
+  // 5) createPdvTransactional mantém o mesmo contrato de items/options no write e no read
+  const pdvCreate = await invoke(ordersController.createPdvTransactional, {
+    headers: { 'x-loja-key': 'loja-key' },
+    body: {
+      external_id: 'contract-pdv',
+      order_type: 'retirada',
+      total: 80,
+      items: [
+        {
+          product_name: 'Pizza Família',
+          quantity: 1,
+          unit_price: 70,
+          obs: 'assar bem',
+          optionsJson: {
+            groups: [
+              {
+                name: 'Sabores',
+                items: [
+                  { name: 'Calabresa', price: '5.004' },
+                  { name: 'Mussarela', price: '5.004' }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    }
+  });
+
+  assert.strictEqual(pdvCreate.statusCode, 201);
+  assert.strictEqual(pdvCreate.body.order.origin, 'pdv');
+  assert.strictEqual(pdvCreate.body.order.status, 'em preparo');
+
+  const pdvStoredItems = await db.query(
+    'SELECT observation, options_json FROM order_items WHERE order_id = $1',
+    [pdvCreate.body.order.id]
+  );
+  assert.strictEqual(pdvStoredItems.rows[0].observation, 'assar bem');
+  assert.deepStrictEqual(JSON.parse(pdvStoredItems.rows[0].options_json), [
+    { option_name: 'Sabores', item_name: 'Calabresa', price: 5 },
+    { option_name: 'Sabores', item_name: 'Mussarela', price: 5 }
+  ]);
+
+  const pdvGetById = await invoke(ordersController.getOrder, {
+    loja: { id: 'loja-1' },
+    params: { id: pdvCreate.body.order.id }
+  });
+  assert.strictEqual(pdvGetById.statusCode, 200);
+  pdvGetById.body.items.forEach(assertCanonicalItemReadShape);
+
   console.log('✅ order payload contract integration test passed');
 }
 
