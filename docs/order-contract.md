@@ -39,7 +39,8 @@ Regras:
 - `order_type`, quando informado, aceita apenas: `entrega`, `retirada`, `local`.
 - `origin`, quando informado em `POST /api/orders`, aceita: `cliente`, `pdv`.
 - Em `POST /api/orders/pdv-transactional`, `origin` persistido é sempre `pdv`.
-- Em `POST /api/orders/pdv-transactional`, `total` precisa ser número válido e não negativo.
+- `total` é opcional; quando enviado, precisa ser número válido e não negativo.
+- Quando `total` não é enviado, o backend calcula automaticamente.
 
 ### 1.2 Order item (request)
 
@@ -57,7 +58,9 @@ Normalizações:
 
 - `quantity` default: `1`.
 - `unit_price` default: `0`.
-- `total_price` persistido: `quantity * unit_price`.
+- `total_price` persistido:
+  - usa `item.total_price` se vier válido (compatibilidade legado), ou
+  - calcula `quantity * (unit_price + soma(options[].price))`.
 - `observation` pode vir por aliases legados e é consolidado no campo canônico.
 
 ### 1.3 Item options (request)
@@ -82,6 +85,14 @@ Regras:
 - Strings passam por `trim`.
 - `price` é numérico e arredondado para 2 casas.
 - Entrada sem `option_name` **e** sem `item_name` é descartada.
+
+### 1.4 Regra monetária canônica (sem breaking change)
+
+- `unit_price` = preço base unitário do produto.
+- `options[].price` = acréscimo unitário da opção.
+- `order_items.total_price` = `item.total_price` válido informado **ou** cálculo canônico do item.
+- `orders.total` = `total` válido informado **ou** `soma(order_items.total_price)` + `delivery_fee` somente quando `order_type = entrega`.
+- `delivery_fee` continua salvo no pedido para auditoria; em `retirada` e `local`, não é somado automaticamente ao total calculado.
 
 ---
 
