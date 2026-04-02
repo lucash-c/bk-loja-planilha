@@ -220,6 +220,51 @@ async function hasReliableOrdersUpdatedAtColumn() {
   }
 }
 
+function serializeOrderItemOptions(item) {
+  const resolvedOptions = resolveOrderItemOptions(item);
+  const optionsJson = resolvedOptions && resolvedOptions.length
+    ? JSON.stringify(resolvedOptions)
+    : null;
+
+  return {
+    resolvedOptions,
+    optionsJson
+  };
+}
+
+function normalizeOrderItem(item, { normalizeUnitPrice, normalizeTotalPrice } = {}) {
+  const quantity = item.quantity || 1;
+  const rawUnitPrice = item.unit_price || 0;
+  const unitPrice = normalizeUnitPrice ? normalizeUnitPrice(rawUnitPrice) : rawUnitPrice;
+  const rawTotalPrice = quantity * unitPrice;
+  const totalPrice = normalizeTotalPrice ? normalizeTotalPrice(rawTotalPrice) : rawTotalPrice;
+  const observation =
+    item.observation || item.observacao || item.obs || item.observação || null;
+  const { resolvedOptions, optionsJson } = serializeOrderItemOptions(item);
+
+  return {
+    product_name: item.product_name,
+    quantity,
+    unit_price: unitPrice,
+    total_price: totalPrice,
+    observation,
+    options_json: optionsJson,
+    resolvedOptions
+  };
+}
+
+function buildOrderItemInsertPayload(orderId, normalizedItem) {
+  return {
+    order_id: orderId,
+    product_name: normalizedItem.product_name,
+    quantity: normalizedItem.quantity,
+    unit_price: normalizedItem.unit_price,
+    total_price: normalizedItem.total_price,
+    observation: normalizedItem.observation,
+    options_json: normalizedItem.options_json
+  };
+}
+
 /**
  * CREATE ORDER
  */
@@ -324,40 +369,24 @@ async function createOrder(req, res, next) {
           options_json: it?.options_json,
           keys: Object.keys(it || {})
         });
-        const quantity = it.quantity || 1;
-        const unitPrice = it.unit_price || 0;
-        const totalPrice = quantity * unitPrice;
-        const observation =
-          it.observation || it.observacao || it.obs || it.observação || null;
-        const resolvedOptions = resolveOrderItemOptions(it);
-        const optionsJson = resolvedOptions && resolvedOptions.length
-          ? JSON.stringify(resolvedOptions)
-          : null;
+        const normalizedItem = normalizeOrderItem(it);
         console.log('[pedido-debug-api] createOrder:item-after-normalize', {
           orderId: id,
           index,
-          resolvedOptions,
-          optionsJson
+          resolvedOptions: normalizedItem.resolvedOptions,
+          optionsJson: normalizedItem.options_json
         });
         const baseIndex = index * 7;
-        const insertRowPayload = {
-          order_id: id,
-          product_name: it.product_name,
-          quantity,
-          unit_price: unitPrice,
-          total_price: totalPrice,
-          observation,
-          options_json: optionsJson
-        };
+        const insertRowPayload = buildOrderItemInsertPayload(id, normalizedItem);
 
         itemValues.push(
-          id,
-          it.product_name,
-          quantity,
-          unitPrice,
-          totalPrice,
-          observation,
-          optionsJson
+          insertRowPayload.order_id,
+          insertRowPayload.product_name,
+          insertRowPayload.quantity,
+          insertRowPayload.unit_price,
+          insertRowPayload.total_price,
+          insertRowPayload.observation,
+          insertRowPayload.options_json
         );
         insertItemPayload.push(insertRowPayload);
         console.log('[pedido-debug-api] insert-order-items:row', insertRowPayload);
@@ -781,40 +810,27 @@ async function createPdvTransactional(req, res, next) {
               options_json: it?.options_json,
               keys: Object.keys(it || {})
             });
-            const quantity = it.quantity || 1;
-            const unitPrice = Number(it.unit_price || 0);
-            const totalPrice = Number((quantity * unitPrice).toFixed(2));
-            const observation =
-              it.observation || it.observacao || it.obs || it.observação || null;
-            const resolvedOptions = resolveOrderItemOptions(it);
-            const optionsJson = resolvedOptions && resolvedOptions.length
-              ? JSON.stringify(resolvedOptions)
-              : null;
+            const normalizedItem = normalizeOrderItem(it, {
+              normalizeUnitPrice: value => Number(value),
+              normalizeTotalPrice: value => Number(Number(value).toFixed(2))
+            });
             console.log('[pedido-debug-api] createPdvTransactional:item-after-normalize', {
               orderId,
               index,
-              resolvedOptions,
-              optionsJson
+              resolvedOptions: normalizedItem.resolvedOptions,
+              optionsJson: normalizedItem.options_json
             });
             const baseIndex = index * 7;
-            const insertRowPayload = {
-              order_id: orderId,
-              product_name: it.product_name,
-              quantity,
-              unit_price: unitPrice,
-              total_price: totalPrice,
-              observation,
-              options_json: optionsJson
-            };
+            const insertRowPayload = buildOrderItemInsertPayload(orderId, normalizedItem);
 
             itemValues.push(
-              orderId,
-              it.product_name,
-              quantity,
-              unitPrice,
-              totalPrice,
-              observation,
-              optionsJson
+              insertRowPayload.order_id,
+              insertRowPayload.product_name,
+              insertRowPayload.quantity,
+              insertRowPayload.unit_price,
+              insertRowPayload.total_price,
+              insertRowPayload.observation,
+              insertRowPayload.options_json
             );
             insertItemPayload.push(insertRowPayload);
             console.log('[pedido-debug-api] insert-order-items:row', insertRowPayload);

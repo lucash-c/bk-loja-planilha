@@ -298,6 +298,47 @@ async function run() {
   assert.deepStrictEqual(pdvCamelListedOrder.items[0].options_json, pdvCamelListedOrder.items[0].options);
   assert.deepStrictEqual(pdvCamelListedOrder.items[0].optionsJson, pdvCamelListedOrder.items[0].options);
 
+  // createOrder e createPdvTransactional persistem order_items equivalentes para o mesmo item
+  const sharedItemsPayload = [
+    {
+      product_name: 'Wrap',
+      quantity: 2,
+      unit_price: 14,
+      observação: 'sem cebola',
+      options: [
+        {
+          option_name: 'Extras',
+          item_name: 'Queijo',
+          price: '3.999'
+        }
+      ]
+    }
+  ];
+  const parityCreateOrder = await createOrder({
+    externalId: 'parity-create-order',
+    items: sharedItemsPayload
+  });
+  const parityPdvOrder = await createPdvTransactional({
+    externalId: 'parity-create-pdv',
+    items: sharedItemsPayload
+  });
+  assert.strictEqual(parityCreateOrder.statusCode, 201);
+  assert.strictEqual(parityPdvOrder.statusCode, 201);
+
+  const parityCreateRows = await db.query(
+    `SELECT product_name, quantity, unit_price, total_price, observation, options_json
+     FROM order_items
+     WHERE order_id = $1`,
+    [parityCreateOrder.body.order.id]
+  );
+  const parityPdvRows = await db.query(
+    `SELECT product_name, quantity, unit_price, total_price, observation, options_json
+     FROM order_items
+     WHERE order_id = $1`,
+    [parityPdvOrder.body.order.id]
+  );
+  assert.deepStrictEqual(parityCreateRows.rows, parityPdvRows.rows);
+
   // createOrder aceita shape agrupado (grupo + items)
   const groupedOrder = await createOrder({
     externalId: 'opt-grouped-items',
