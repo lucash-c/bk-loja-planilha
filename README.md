@@ -485,6 +485,10 @@ Painel admin (JWT):
 - `GET /?only_open=true` retorna apenas pedidos em aberto (não cancelados/finalizados/entregues/concluídos)
 - `GET /?only_today=true` retorna apenas pedidos criados no dia UTC atual
 - `GET /?created_after=<ISO-8601>` retorna pedidos com `created_at >= created_after`
+- `GET /?statuses=em%20preparo,aguardando%20aceite` inclui apenas os status informados (case-insensitive)
+- `GET /?exclude_statuses=cancelado,entregue` exclui status específicos (case-insensitive)
+- `GET /?limit=50` controla quantidade de pedidos retornados (1..200, default 200)
+- `GET /?include=items&items_limit_per_order=3` limita itens por pedido quando `include=items` (1..100)
 - `GET /:id` (id interno ou `external_id`)
 - `PUT /:id/status`
 
@@ -492,13 +496,17 @@ Filtros podem ser combinados para chamadas mais leves no frontend, por exemplo:
 
 - `GET /api/orders?only_open=true&only_today=true`
 - `GET /api/orders?only_open=true&created_after=2026-04-02T00:00:00.000Z`
+- `GET /api/orders?statuses=em%20preparo,aguardando%20aceite&limit=50`
 - `GET /api/orders?include=items&only_open=true&only_today=true&created_after=2026-04-01T12:00:00.000Z`
+- `GET /api/orders?include=items&only_open=true&limit=30&items_limit_per_order=5`
 
 Compatibilidade:
 
 - Se os filtros não forem enviados, a resposta permanece igual ao comportamento anterior.
 - Enviar `only_open=false` e/ou `only_today=false` equivale a não aplicar filtro.
 - A semântica de status existente não muda: o filtro `only_open=true` apenas exclui estados de encerramento já reconhecidos.
+- Ordenação preservada: `created_at DESC` (com desempate por `id DESC` para estabilidade).
+- Limites e filtros novos são opcionais e não alteram o retorno legado quando ausentes.
 
 
 Contrato técnico de payload (order / item / options):
