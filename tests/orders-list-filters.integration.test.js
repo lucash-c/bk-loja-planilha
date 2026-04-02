@@ -87,6 +87,7 @@ async function run() {
   await seedOrder({ id: 'o-old', externalId: 'A4', customerName: 'Daniel', status: 'entregue', createdAt: threeDaysAgo });
 
   await seedItem({ id: 'i-1', orderId: 'o-open-today', productName: 'Pizza' });
+  await seedItem({ id: 'i-2', orderId: 'o-open-today', productName: 'Suco' });
 
   const listNoItemsRes = await invoke(ordersController.listOrders, {
     loja: { id: 'loja-1' },
@@ -119,7 +120,49 @@ async function run() {
   const orderWithItems = listWithItemsRes.body.find(order => order.id === 'o-open-today');
   assert.ok(orderWithItems);
   assert.ok(Array.isArray(orderWithItems.items));
-  assert.strictEqual(orderWithItems.items.length, 1);
+  assert.strictEqual(orderWithItems.items.length, 2);
+
+  const limitRes = await invoke(ordersController.listOrders, {
+    loja: { id: 'loja-1' },
+    query: { limit: '2' }
+  });
+  assert.strictEqual(limitRes.statusCode, 200);
+  assert.strictEqual(limitRes.body.length, 2);
+
+  const statusesRes = await invoke(ordersController.listOrders, {
+    loja: { id: 'loja-1' },
+    query: { statuses: 'em preparo,aguardando aceite' }
+  });
+  assert.strictEqual(statusesRes.statusCode, 200);
+  assert.ok(statusesRes.body.length > 0);
+  assert.ok(
+    statusesRes.body.every(order =>
+      ['em preparo', 'aguardando aceite'].includes((order.status || '').toLowerCase())
+    )
+  );
+
+  const excludeStatusesRes = await invoke(ordersController.listOrders, {
+    loja: { id: 'loja-1' },
+    query: { exclude_statuses: 'cancelado,entregue' }
+  });
+  assert.strictEqual(excludeStatusesRes.statusCode, 200);
+  assert.ok(
+    excludeStatusesRes.body.every(order =>
+      !['cancelado', 'entregue'].includes((order.status || '').toLowerCase())
+    )
+  );
+
+  const itemsLimitRes = await invoke(ordersController.listOrders, {
+    loja: { id: 'loja-1' },
+    query: {
+      include: 'items',
+      items_limit_per_order: '1'
+    }
+  });
+  assert.strictEqual(itemsLimitRes.statusCode, 200);
+  const orderWithLimitedItems = itemsLimitRes.body.find(order => order.id === 'o-open-today');
+  assert.ok(orderWithLimitedItems);
+  assert.strictEqual(orderWithLimitedItems.items.length, 1);
 
   const onlyTodayRes = await invoke(ordersController.listOrders, {
     loja: { id: 'loja-1' },
@@ -167,6 +210,12 @@ async function run() {
     ['o-open-today']
   );
   assert.ok(combinedFiltersWithItemsRes.body.every(order => Array.isArray(order.items)));
+
+  const invalidLimitRes = await invoke(ordersController.listOrders, {
+    loja: { id: 'loja-1' },
+    query: { limit: '0' }
+  });
+  assert.strictEqual(invalidLimitRes.statusCode, 400);
 
   console.log('All order list filter integration tests passed');
 }

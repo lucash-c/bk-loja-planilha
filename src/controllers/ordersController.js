@@ -951,10 +951,55 @@ async function listOrders(req, res, next) {
       return parsed.toISOString();
     };
 
+    const parseIntegerParam = ({ value, fieldName, min, max, defaultValue }) => {
+      if (value === undefined || value === null || value === '') {
+        return defaultValue;
+      }
+
+      const parsed = Number.parseInt(value, 10);
+      if (!Number.isFinite(parsed) || String(parsed) !== String(value).trim()) {
+        const error = new Error(`Parâmetro inválido: ${fieldName}`);
+        error.status = 400;
+        throw error;
+      }
+
+      if (parsed < min || parsed > max) {
+        const error = new Error(`Parâmetro fora do intervalo permitido: ${fieldName}`);
+        error.status = 400;
+        throw error;
+      }
+
+      return parsed;
+    };
+
+    const parseStatusesParam = value => {
+      if (!value) return [];
+      return String(value)
+        .split(',')
+        .map(status => status.trim().toLowerCase())
+        .filter(Boolean);
+    };
+
     const onlyOpen = parseBooleanParam(req.query.only_open);
     const onlyToday = parseBooleanParam(req.query.only_today);
     const createdAfter = parseDateParam(req.query.created_after, 'created_after');
     const updatedAfter = parseDateParam(req.query.updated_after, 'updated_after');
+    const limit = parseIntegerParam({
+      value: req.query.limit,
+      fieldName: 'limit',
+      min: 1,
+      max: 200,
+      defaultValue: 200
+    });
+    const itemsLimitPerOrder = parseIntegerParam({
+      value: req.query.items_limit_per_order,
+      fieldName: 'items_limit_per_order',
+      min: 1,
+      max: 100,
+      defaultValue: null
+    });
+    const statuses = parseStatusesParam(req.query.statuses);
+    const excludeStatuses = parseStatusesParam(req.query.exclude_statuses);
     const hasUpdatedAt = updatedAfter
       ? await hasReliableOrdersUpdatedAtColumn()
       : false;
@@ -996,18 +1041,30 @@ async function listOrders(req, res, next) {
       filters.push(`created_at >= $${params.push(createdAfter)}`);
     }
 
+    if (statuses.length) {
+      const placeholders = statuses.map(status => `$${params.push(status)}`).join(',');
+      filters.push(`LOWER(COALESCE(status, '')) IN (${placeholders})`);
+    }
+
+    if (excludeStatuses.length) {
+      const placeholders = excludeStatuses.map(status => `$${params.push(status)}`).join(',');
+      filters.push(`LOWER(COALESCE(status, '')) NOT IN (${placeholders})`);
+    }
+
     // Segurança/retrocompatibilidade: só usa updated_after quando a base possui updated_at em orders.
     if (updatedAfter && hasUpdatedAt) {
       filters.push(`updated_at >= $${params.push(updatedAfter)}`);
     }
+
+    const limitParamIndex = params.push(limit);
 
     const { rows } = await db.query(
       `
       SELECT *
       FROM orders
       WHERE ${filters.join('\n        AND ')}
-      ORDER BY created_at DESC
-      LIMIT 200
+      ORDER BY created_at DESC, id DESC
+      LIMIT $${limitParamIndex}
       `,
       params
     );
@@ -1023,15 +1080,30 @@ async function listOrders(req, res, next) {
 
     const orderIds = rows.map(order => order.id);
     const placeholders = orderIds.map((_, index) => `$${index + 1}`).join(',');
-
-    const itemsRes = await db.query(
-      `
+    const itemQueryParams = [...orderIds];
+    let itemsQuery = `
       SELECT *
       FROM order_items
       WHERE order_id IN (${placeholders})
-      `,
-      orderIds
-    );
+    `;
+    if (itemsLimitPerOrder) {
+      const itemsLimitIndex = itemQueryParams.push(itemsLimitPerOrder);
+      itemsQuery = `
+        SELECT *
+        FROM (
+          SELECT oi.*,
+            ROW_NUMBER() OVER (
+              PARTITION BY oi.order_id
+              ORDER BY oi.created_at DESC, oi.id DESC
+            ) AS row_num
+          FROM order_items oi
+          WHERE oi.order_id IN (${placeholders})
+        ) ranked_items
+        WHERE row_num <= $${itemsLimitIndex}
+      `;
+    }
+
+    const itemsRes = await db.query(itemsQuery, itemQueryParams);
 
     const itemsByOrder = new Map();
     for (const item of itemsRes.rows) {
