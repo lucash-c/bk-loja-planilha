@@ -139,6 +139,30 @@ CREATE TABLE IF NOT EXISTS orders (
 CREATE INDEX IF NOT EXISTS idx_orders_loja_id ON orders(loja_id);
 
 -- ==========================================
+-- PUBLIC_PIX_CHECKOUT_SESSIONS
+-- ==========================================
+CREATE TABLE IF NOT EXISTS public_pix_checkout_sessions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    loja_id UUID NOT NULL REFERENCES lojas(id) ON DELETE CASCADE,
+    public_key TEXT NOT NULL,
+    correlation_id TEXT NOT NULL,
+    payment_id TEXT,
+    txid TEXT,
+    raw_order_payload JSONB NOT NULL,
+    amount NUMERIC(10,2) NOT NULL CHECK (amount >= 0),
+    payment_method TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'failed', 'expired', 'cancelled', 'converted')),
+    order_id UUID REFERENCES orders(id) ON DELETE SET NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    UNIQUE (loja_id, correlation_id),
+    UNIQUE (loja_id, payment_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_public_pix_checkout_sessions_lookup
+    ON public_pix_checkout_sessions(loja_id, payment_id, correlation_id);
+
+-- ==========================================
 -- ORDER_JOBS (AÇÕES PÓS-CRIAÇÃO DE PEDIDO)
 -- ==========================================
 CREATE TABLE IF NOT EXISTS order_jobs (

@@ -14,6 +14,10 @@ const {
   calculateOrderMonetarySummary
 } = require('../utils/orderPricing');
 const { pedidoDebugLog } = require('../utils/pedidoDebugLogger');
+const {
+  createPixPaymentIntent,
+  fetchPaymentStatus
+} = require('../services/paymentsApiService');
 
 function stableStringify(value) {
   if (Array.isArray(value)) {
@@ -258,6 +262,150 @@ function buildOrderItemInsertPayload(orderId, normalizedItem) {
   };
 }
 
+function resolveStorePublicKey(req) {
+  return req.headers['x-loja-key'] || req.query.loja || null;
+}
+
+async function createFinalOrderFromPayload({
+  tx,
+  lojaId,
+  payload,
+  paymentStatus = 'pending',
+  orderStatus = 'new'
+}) {
+  const orderId = uuidv4();
+  const items = Array.isArray(payload.items) ? payload.items : [];
+  const normalizedItemsWithOptions = items.map(item => {
+    const { resolvedOptions } = serializeOrderItemOptions(item);
+    return {
+      ...item,
+      resolvedOptions
+    };
+  });
+
+  const monetarySummary = calculateOrderMonetarySummary({
+    items: normalizedItemsWithOptions,
+    total: payload.total,
+    delivery_fee: payload.delivery_fee,
+    order_type: payload.order_type || 'entrega'
+  });
+
+  const persistedItems = [];
+
+  await tx.query(
+    `
+    INSERT INTO orders (
+      id,
+      loja_id,
+      external_id,
+      customer_name,
+      customer_whatsapp,
+      order_type,
+      delivery_address,
+      delivery_distance_km,
+      delivery_fee,
+      delivery_estimated_time_minutes,
+      total,
+      payment_method,
+      origin,
+      payment_status,
+      status,
+      notes
+    )
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+    `,
+    [
+      orderId,
+      lojaId,
+      payload.external_id || null,
+      payload.customer_name || null,
+      payload.customer_whatsapp || null,
+      payload.order_type || 'entrega',
+      payload.delivery_address || null,
+      payload.delivery_distance_km || null,
+      monetarySummary.delivery_fee,
+      payload.delivery_estimated_time_minutes || null,
+      monetarySummary.order_total,
+      payload.payment_method || null,
+      payload.origin || 'cliente',
+      paymentStatus,
+      orderStatus,
+      payload.notes || null
+    ]
+  );
+
+  const itemValues = [];
+  const itemPlaceholders = monetarySummary.items.map((it, index) => {
+    const normalizedItem = normalizeOrderItem(it, {
+      quantity: it.quantity,
+      unitPrice: it.unit_price,
+      totalPrice: it.total_price
+    });
+    const baseIndex = index * 7;
+    const insertRowPayload = buildOrderItemInsertPayload(orderId, normalizedItem);
+
+    itemValues.push(
+      insertRowPayload.order_id,
+      insertRowPayload.product_name,
+      insertRowPayload.quantity,
+      insertRowPayload.unit_price,
+      insertRowPayload.total_price,
+      insertRowPayload.observation,
+      insertRowPayload.options_json
+    );
+    persistedItems.push(normalizedItem);
+    return `($${baseIndex + 1},$${baseIndex + 2},$${baseIndex + 3},$${baseIndex + 4},$${baseIndex + 5},$${baseIndex + 6},$${baseIndex + 7})`;
+  });
+
+  await tx.query(
+    `
+    INSERT INTO order_items (
+      order_id,
+      product_name,
+      quantity,
+      unit_price,
+      total_price,
+      observation,
+      options_json
+    )
+    VALUES ${itemPlaceholders.join(',')}
+    `,
+    itemValues
+  );
+
+  await tx.query(
+    `
+    INSERT INTO order_jobs (
+      order_id,
+      loja_id,
+      job_type,
+      payload
+    )
+    VALUES ($1, $2, $3, $4)
+    `,
+    [
+      orderId,
+      lojaId,
+      'post_order_actions',
+      JSON.stringify({
+        order_id: orderId,
+        loja_id: lojaId,
+        actions: {
+          send_whatsapp: true,
+          send_email: true,
+          integrate_erp: true
+        }
+      })
+    ]
+  );
+
+  return {
+    orderId,
+    monetarySummary,
+    persistedItems
+  };
+}
+
 /**
  * CREATE ORDER
  */
@@ -308,6 +456,132 @@ async function createOrder(req, res, next) {
     });
     if (paymentMethodError) {
       return res.status(400).json({ error: paymentMethodError });
+    }
+
+    const paymentMethodCode = String(payment_method || '').trim().toLowerCase();
+
+    if (paymentMethodCode === 'pix') {
+      const publicKey = resolveStorePublicKey(req);
+      if (!publicKey) {
+        return res.status(400).json({ error: 'Chave pública da loja não informada' });
+      }
+
+      const normalizedItemsWithOptions = items.map(item => {
+        const { resolvedOptions } = serializeOrderItemOptions(item);
+        return {
+          ...item,
+          resolvedOptions
+        };
+      });
+      const monetarySummary = calculateOrderMonetarySummary({
+        items: normalizedItemsWithOptions,
+        total,
+        delivery_fee,
+        order_type: order_type || 'entrega'
+      });
+
+      const sessionId = uuidv4();
+      const correlationId = uuidv4();
+      const draftPayload = {
+        external_id,
+        customer_name,
+        customer_whatsapp,
+        delivery_address,
+        delivery_fee,
+        delivery_distance_km,
+        delivery_estimated_time_minutes,
+        order_type,
+        payment_method,
+        origin,
+        total,
+        notes,
+        items
+      };
+
+      await db.query(
+        `
+        INSERT INTO public_pix_checkout_sessions (
+          id,
+          loja_id,
+          public_key,
+          correlation_id,
+          raw_order_payload,
+          amount,
+          payment_method,
+          status
+        )
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+        `,
+        [
+          sessionId,
+          lojaId,
+          publicKey,
+          correlationId,
+          JSON.stringify(draftPayload),
+          monetarySummary.order_total,
+          paymentMethodCode,
+          'pending'
+        ]
+      );
+
+      let paymentIntent;
+      try {
+        paymentIntent = await createPixPaymentIntent({
+          lojaId,
+          publicKey,
+          correlationId,
+          amount: monetarySummary.order_total,
+          orderPayload: draftPayload
+        });
+      } catch (err) {
+        await db.query(
+          `
+          UPDATE public_pix_checkout_sessions
+          SET status = 'failed',
+              updated_at = CURRENT_TIMESTAMP
+          WHERE id = $1
+            AND loja_id = $2
+          `,
+          [sessionId, lojaId]
+        );
+        const statusCode = err.statusCode || 500;
+        return res.status(statusCode).json({ error: err.message });
+      }
+
+      await db.query(
+        `
+        UPDATE public_pix_checkout_sessions
+        SET payment_id = $1,
+            txid = $2,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = $3
+          AND loja_id = $4
+        `,
+        [
+          paymentIntent?.payment_id || paymentIntent?.id || null,
+          paymentIntent?.txid || paymentIntent?.pix?.txid || null,
+          sessionId,
+          lojaId
+        ]
+      );
+
+      return res.status(202).json({
+        ok: true,
+        checkout_session: {
+          id: sessionId,
+          loja_id: lojaId,
+          correlation_id: correlationId,
+          payment_id: paymentIntent?.payment_id || paymentIntent?.id || null,
+          amount: monetarySummary.order_total,
+          payment_method: paymentMethodCode,
+          status: 'pending'
+        },
+        pix: {
+          ...(paymentIntent?.pix || {}),
+          payment_id: paymentIntent?.payment_id || paymentIntent?.id || null,
+          correlation_id: paymentIntent?.correlation_id || correlationId
+        }
+      });
     }
 
     const id = uuidv4();
@@ -1298,6 +1572,189 @@ async function updateStatus(req, res, next) {
   }
 }
 
+async function handlePixPaymentCallback(req, res, next) {
+  try {
+    const lojaId = req.body?.loja_id;
+    const paymentId = req.body?.payment_id;
+    const correlationId = req.body?.correlation_id;
+
+    if (!lojaId || (!paymentId && !correlationId)) {
+      return res.status(400).json({ error: 'Payload inválido para reconciliação PIX' });
+    }
+
+    const sessionRes = await db.query(
+      `
+      SELECT *
+      FROM public_pix_checkout_sessions
+      WHERE loja_id = $1
+        AND (
+          ($2 IS NOT NULL AND payment_id = $3)
+          OR ($4 IS NOT NULL AND correlation_id = $5)
+        )
+      LIMIT 1
+      `,
+      [lojaId, paymentId || null, paymentId || null, correlationId || null, correlationId || null]
+    );
+
+    if (!sessionRes.rows.length) {
+      return res.status(202).json({ ok: true, reconciled: false, reason: 'session_not_found' });
+    }
+
+    const session = sessionRes.rows[0];
+    if (session.order_id || session.status === 'converted') {
+      return res.status(200).json({
+        ok: true,
+        reconciled: true,
+        converted: true,
+        order_id: session.order_id
+      });
+    }
+
+    const resolvedPaymentId = session.payment_id || paymentId;
+    if (!resolvedPaymentId) {
+      return res.status(400).json({ error: 'payment_id ausente para reconciliação segura' });
+    }
+
+    const paymentSnapshot = await fetchPaymentStatus({
+      paymentId: resolvedPaymentId,
+      lojaId: session.loja_id,
+      correlationId: session.correlation_id || correlationId || null
+    });
+
+    const verifiedStatus = String(paymentSnapshot?.status || '').toLowerCase();
+    const verifiedLojaId = paymentSnapshot?.loja_id || paymentSnapshot?.store_id;
+    const verifiedCorrelationId = paymentSnapshot?.correlation_id || null;
+    const verifiedPaymentId = paymentSnapshot?.payment_id || paymentSnapshot?.id;
+
+    if (
+      String(verifiedLojaId) !== String(session.loja_id) ||
+      String(verifiedPaymentId) !== String(resolvedPaymentId) ||
+      (session.correlation_id && verifiedCorrelationId && String(verifiedCorrelationId) !== String(session.correlation_id))
+    ) {
+      return res.status(409).json({ ok: false, reconciled: false, reason: 'payment_mismatch' });
+    }
+
+    if (verifiedStatus !== 'approved') {
+      return res.status(202).json({
+        ok: true,
+        reconciled: false,
+        payment_status: verifiedStatus || 'unknown'
+      });
+    }
+
+    const conversion = await db.withTransaction(async tx => {
+      const lockClause = getForUpdateClause();
+      const lockedSessionRes = await tx.query(
+        `
+        SELECT *
+        FROM public_pix_checkout_sessions
+        WHERE id = $1
+          AND loja_id = $2
+        ${lockClause}
+        `,
+        [session.id, session.loja_id]
+      );
+
+      if (!lockedSessionRes.rows.length) {
+        return { statusCode: 404, payload: { ok: false, error: 'Sessão não encontrada' } };
+      }
+
+      const lockedSession = lockedSessionRes.rows[0];
+      if (lockedSession.order_id || lockedSession.status === 'converted') {
+        return {
+          statusCode: 200,
+          payload: {
+            ok: true,
+            converted: true,
+            order_id: lockedSession.order_id
+          }
+        };
+      }
+
+      const draftPayload = JSON.parse(lockedSession.raw_order_payload || '{}');
+      const createdOrder = await createFinalOrderFromPayload({
+        tx,
+        lojaId: lockedSession.loja_id,
+        payload: draftPayload,
+        paymentStatus: 'approved',
+        orderStatus: 'new'
+      });
+
+      await tx.query(
+        `
+        UPDATE public_pix_checkout_sessions
+        SET status = 'converted',
+            order_id = $1,
+            payment_id = $2,
+            correlation_id = COALESCE(correlation_id, $3),
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = $4
+          AND loja_id = $5
+        `,
+        [
+          createdOrder.orderId,
+          verifiedPaymentId,
+          verifiedCorrelationId || session.correlation_id,
+          lockedSession.id,
+          lockedSession.loja_id
+        ]
+      );
+
+      return {
+        statusCode: 200,
+        payload: {
+          ok: true,
+          converted: true,
+          order_id: createdOrder.orderId
+        },
+        orderId: createdOrder.orderId,
+        lojaId: lockedSession.loja_id
+      };
+    });
+
+    if (conversion.orderId) {
+      await publishOrderEvent({
+        type: 'order.created',
+        orderId: conversion.orderId,
+        lojaId: conversion.lojaId
+      });
+    }
+
+    return res.status(conversion.statusCode).json(conversion.payload);
+  } catch (err) {
+    return next(err);
+  }
+}
+
+async function getPublicPixSessionStatus(req, res, next) {
+  try {
+    const lojaId = req.loja.id;
+    const sessionId = req.params.id;
+
+    const result = await db.query(
+      `
+      SELECT id, loja_id, correlation_id, payment_id, txid, amount, payment_method, status, order_id, created_at, updated_at
+      FROM public_pix_checkout_sessions
+      WHERE id = $1
+        AND loja_id = $2
+      LIMIT 1
+      `,
+      [sessionId, lojaId]
+    );
+
+    if (!result.rows.length) {
+      return res.status(404).json({ error: 'Sessão PIX não encontrada' });
+    }
+
+    return res.status(200).json({
+      ok: true,
+      session: result.rows[0]
+    });
+  } catch (err) {
+    return next(err);
+  }
+}
+
 async function streamOrders(req, res, next) {
   try {
     if (!req.loja?.id || req.tokenType !== 'store') {
@@ -1340,6 +1797,8 @@ module.exports = {
   listOrders,
   getOrder,
   updateStatus,
+  handlePixPaymentCallback,
+  getPublicPixSessionStatus,
   streamOrders,
   EVENT_VERSION
 };
