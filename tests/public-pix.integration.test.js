@@ -86,7 +86,17 @@ async function run() {
   assert.strictEqual(success.body.pix.description, 'Pedido da loja');
   assert.ok(success.body.pix.qr_code_text.includes('br.gov.bcb.pix'));
   assert.ok(/6304[0-9A-F]{4}$/.test(success.body.pix.qr_code_text));
-  assert.ok(success.body.pix.qr_code_image_url.startsWith('https://quickchart.io/qr?'));
+  assert.ok(typeof success.body.pix.qr_code_base64 === 'string');
+  assert.ok(success.body.pix.qr_code_base64.length > 0);
+  assert.ok(!('qr_code_image_url' in success.body.pix));
+  assert.ok(typeof success.body.pix.txid === 'string');
+  assert.ok(/^[A-Z0-9]{1,25}$/.test(success.body.pix.txid));
+
+  const success2 = await invoke(publicPixController.generateCheckoutPix, {
+    params: { public_key: 'public-1' },
+    body: { amount: 59.9, description: 'Pedido da loja' }
+  });
+  assert.notStrictEqual(success2.body.pix.txid, success.body.pix.txid);
 
   const invalidAmount = await invoke(publicPixController.generateCheckoutPix, {
     params: { public_key: 'public-1' },
