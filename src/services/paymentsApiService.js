@@ -37,7 +37,7 @@ async function requestJson(url, options) {
   return payload;
 }
 
-async function createPixPaymentIntent({ lojaId, publicKey, correlationId, amount, orderPayload }) {
+async function createPixPaymentIntent({ lojaId, publicKey, correlationId, amount, orderPayload, mercadoPagoAccessToken }) {
   const baseUrl = getPaymentsApiBaseUrl();
   return requestJson(`${baseUrl}/api/payments/pix/intents`, {
     method: 'POST',
@@ -47,7 +47,8 @@ async function createPixPaymentIntent({ lojaId, publicKey, correlationId, amount
       correlation_id: correlationId,
       amount,
       payment_method: 'pix',
-      order_payload: orderPayload
+      order_payload: orderPayload,
+      mercado_pago_access_token: mercadoPagoAccessToken
     })
   });
 }

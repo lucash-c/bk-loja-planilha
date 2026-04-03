@@ -499,6 +499,7 @@ async function fetchStoreSettings(lojaId) {
   const result = await db.query(
     `
     SELECT
+      mercado_pago_access_token,
       pix_key,
       pix_qr_image,
       open_time,
@@ -512,6 +513,7 @@ async function fetchStoreSettings(lojaId) {
 
   if (!result.rows.length) {
     return {
+      mercado_pago_access_token: null,
       pix_key: null,
       pix_qr_image: null,
       open_time: null,

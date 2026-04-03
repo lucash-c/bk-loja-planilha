@@ -20,6 +20,9 @@ global.fetch = async (url, options = {}) => {
 
   if (method === 'POST' && String(url).includes('/api/payments/pix/intents')) {
     const body = JSON.parse(options.body || '{}');
+    if (!body.mercado_pago_access_token) {
+      throw new Error('mercado_pago_access_token ausente no payload da intent PIX');
+    }
     paymentCounter += 1;
     const paymentId = `pay-${paymentCounter}`;
 
@@ -95,6 +98,7 @@ async function invoke(handler, req) {
 
 async function setupSchema() {
   await db.query('CREATE TABLE lojas (id TEXT PRIMARY KEY, public_key TEXT UNIQUE, name TEXT, is_active INTEGER)');
+  await db.query('CREATE TABLE store_settings (loja_id TEXT UNIQUE, mercado_pago_access_token TEXT)');
   await db.query('CREATE TABLE store_payment_methods (id TEXT PRIMARY KEY, loja_id TEXT, code TEXT, label TEXT, is_active INTEGER)');
   await db.query('CREATE TABLE orders (id TEXT PRIMARY KEY, loja_id TEXT, external_id TEXT, customer_name TEXT, customer_whatsapp TEXT, order_type TEXT, delivery_address TEXT, delivery_distance_km NUMERIC, delivery_estimated_time_minutes INTEGER, delivery_fee NUMERIC, total NUMERIC, payment_method TEXT, origin TEXT, payment_status TEXT, status TEXT, notes TEXT, created_at TEXT)');
   await db.query('CREATE TABLE order_items (id TEXT PRIMARY KEY, order_id TEXT, product_name TEXT, quantity INTEGER, unit_price NUMERIC, total_price NUMERIC, observation TEXT, options_json TEXT, created_at TEXT)');
@@ -104,6 +108,7 @@ async function setupSchema() {
 
 async function seedStore(lojaId, publicKey) {
   await db.query('INSERT INTO lojas (id, public_key, name, is_active) VALUES ($1,$2,$3,$4)', [lojaId, publicKey, `Loja ${lojaId}`, 1]);
+  await db.query('INSERT INTO store_settings (loja_id, mercado_pago_access_token) VALUES ($1,$2)', [lojaId, `APP_USR-${lojaId}`]);
   await db.query('INSERT INTO store_payment_methods (id, loja_id, code, label, is_active) VALUES ($1,$2,$3,$4,$5)', [`pm-${lojaId}-pix`, lojaId, 'pix', 'PIX', 1]);
   await db.query('INSERT INTO store_payment_methods (id, loja_id, code, label, is_active) VALUES ($1,$2,$3,$4,$5)', [`pm-${lojaId}-dinheiro`, lojaId, 'dinheiro', 'Dinheiro', 1]);
 }
@@ -241,6 +246,19 @@ async function run() {
 
   const lojaBOrders = await db.query('SELECT * FROM orders WHERE loja_id = $1', ['loja-b']);
   assert.strictEqual(lojaBOrders.rows.length, 0);
+
+  await db.query('UPDATE store_settings SET mercado_pago_access_token = NULL WHERE loja_id = $1', ['loja-a']);
+  const missingStoreToken = await invoke(ordersController.createOrder, {
+    loja: { id: 'loja-a' },
+    headers: { 'x-loja-key': 'pub-a' },
+    query: {},
+    body: makePixPayload({ external_id: 'pix-sem-token-loja' })
+  });
+  assert.strictEqual(missingStoreToken.statusCode, 400);
+  assert.match(missingStoreToken.body.error, /Access Token/);
+  await db.query('UPDATE store_settings SET mercado_pago_access_token = $1 WHERE loja_id = $2', ['APP_USR-loja-a', 'loja-a']);
+  const tokenRestored = await db.query('SELECT mercado_pago_access_token FROM store_settings WHERE loja_id = $1', ['loja-a']);
+  assert.strictEqual(tokenRestored.rows[0].mercado_pago_access_token, 'APP_USR-loja-a');
 
   const nonPix = await invoke(ordersController.createOrder, {
     loja: { id: 'loja-a' },

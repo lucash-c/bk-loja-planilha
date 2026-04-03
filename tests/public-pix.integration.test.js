@@ -9,7 +9,10 @@ delete process.env.DATABASE_URL;
 
 const db = require('../src/config/db');
 const publicPixController = require('../src/controllers/publicPixController');
-const { PIX_NOT_CONFIGURED_MESSAGE } = require('../src/services/publicPixService');
+const {
+  PIX_NOT_CONFIGURED_MESSAGE,
+  PIX_DEPRECATED_MESSAGE
+} = require('../src/services/publicPixService');
 
 function createRes() {
   return {
@@ -40,7 +43,7 @@ async function invoke(handler, req) {
 
 async function setupSchema() {
   await db.query('CREATE TABLE lojas (id TEXT PRIMARY KEY, public_key TEXT UNIQUE, name TEXT, cidade TEXT, is_active INTEGER)');
-  await db.query('CREATE TABLE store_settings (loja_id TEXT UNIQUE, pix_key TEXT)');
+  await db.query('CREATE TABLE store_settings (loja_id TEXT UNIQUE, mercado_pago_access_token TEXT, pix_key TEXT)');
 }
 
 async function run() {
@@ -70,33 +73,19 @@ async function run() {
     1
   ]);
 
-  await db.query('INSERT INTO store_settings (loja_id, pix_key) VALUES ($1,$2)', [
+  await db.query('INSERT INTO store_settings (loja_id, mercado_pago_access_token, pix_key) VALUES ($1,$2,$3)', [
     'loja-1',
+    'APP_USR-abc123',
     '11999999999'
   ]);
 
-  const success = await invoke(publicPixController.generateCheckoutPix, {
+  const deprecated = await invoke(publicPixController.generateCheckoutPix, {
     params: { public_key: 'public-1' },
     body: { amount: 59.9, description: 'Pedido da loja' }
   });
 
-  assert.strictEqual(success.statusCode, 200);
-  assert.strictEqual(success.body.ok, true);
-  assert.strictEqual(success.body.pix.amount, 59.9);
-  assert.strictEqual(success.body.pix.description, 'Pedido da loja');
-  assert.ok(success.body.pix.qr_code_text.includes('br.gov.bcb.pix'));
-  assert.ok(/6304[0-9A-F]{4}$/.test(success.body.pix.qr_code_text));
-  assert.ok(typeof success.body.pix.qr_code_base64 === 'string');
-  assert.ok(success.body.pix.qr_code_base64.length > 0);
-  assert.ok(!('qr_code_image_url' in success.body.pix));
-  assert.ok(typeof success.body.pix.txid === 'string');
-  assert.ok(/^[A-Z0-9]{1,25}$/.test(success.body.pix.txid));
-
-  const success2 = await invoke(publicPixController.generateCheckoutPix, {
-    params: { public_key: 'public-1' },
-    body: { amount: 59.9, description: 'Pedido da loja' }
-  });
-  assert.notStrictEqual(success2.body.pix.txid, success.body.pix.txid);
+  assert.strictEqual(deprecated.statusCode, 410);
+  assert.strictEqual(deprecated.body.error, PIX_DEPRECATED_MESSAGE);
 
   const invalidAmount = await invoke(publicPixController.generateCheckoutPix, {
     params: { public_key: 'public-1' },
@@ -104,6 +93,19 @@ async function run() {
   });
   assert.strictEqual(invalidAmount.statusCode, 400);
   assert.strictEqual(invalidAmount.body.error, 'Informe um valor válido maior que zero.');
+
+  const legacyOnlySetup = await db.query(
+    'UPDATE store_settings SET mercado_pago_access_token = NULL WHERE loja_id = $1',
+    ['loja-1']
+  );
+  assert.ok(typeof legacyOnlySetup.rowCount === 'number');
+
+  const noToken = await invoke(publicPixController.generateCheckoutPix, {
+    params: { public_key: 'public-1' },
+    body: { amount: 10 }
+  });
+  assert.strictEqual(noToken.statusCode, 400);
+  assert.strictEqual(noToken.body.error, PIX_NOT_CONFIGURED_MESSAGE);
 
   const noPix = await invoke(publicPixController.generateCheckoutPix, {
     params: { public_key: 'public-no-pix' },

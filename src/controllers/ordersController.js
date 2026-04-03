@@ -67,6 +67,25 @@ async function validateStorePaymentMethod({ lojaId, paymentMethod, tx = db }) {
   return null;
 }
 
+async function getStoreMercadoPagoAccessToken(lojaId) {
+  const settingsRes = await db.query(
+    `
+    SELECT mercado_pago_access_token
+    FROM store_settings
+    WHERE loja_id = $1
+    LIMIT 1
+    `,
+    [lojaId]
+  );
+
+  if (!settingsRes.rows.length) {
+    return null;
+  }
+
+  const token = String(settingsRes.rows[0].mercado_pago_access_token || '').trim();
+  return token || null;
+}
+
 async function handleIdempotency({ req, res, storeId, scope, orderId, execute, onCompleted }) {
   const idempotencyKey = getIdempotencyKey(req);
 
@@ -461,6 +480,13 @@ async function createOrder(req, res, next) {
     const paymentMethodCode = String(payment_method || '').trim().toLowerCase();
 
     if (paymentMethodCode === 'pix') {
+      const mercadoPagoAccessToken = await getStoreMercadoPagoAccessToken(lojaId);
+      if (!mercadoPagoAccessToken) {
+        return res.status(400).json({
+          error: 'Mercado Pago Access Token não configurado para esta loja'
+        });
+      }
+
       const publicKey = resolveStorePublicKey(req);
       if (!publicKey) {
         return res.status(400).json({ error: 'Chave pública da loja não informada' });
@@ -531,7 +557,8 @@ async function createOrder(req, res, next) {
           publicKey,
           correlationId,
           amount: monetarySummary.order_total,
-          orderPayload: draftPayload
+          orderPayload: draftPayload,
+          mercadoPagoAccessToken
         });
       } catch (err) {
         await db.query(
