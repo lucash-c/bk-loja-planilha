@@ -52,13 +52,8 @@ async function upsertSettings(req, res, next) {
         .status(403)
         .json({ error: 'Apenas o owner pode alterar as configurações' });
     }
-    const {
-      pix_key,
-      pix_qr_image,
-      open_time,
-      close_time,
-      is_open
-    } = req.body;
+    const { pix_key, pix_qr_image, open_time, close_time, is_open } = req.body;
+    const normalizedPixKey = typeof pix_key === 'string' ? pix_key.trim() : null;
 
     const result = await db.query(
       `
@@ -83,7 +78,7 @@ async function upsertSettings(req, res, next) {
       `,
       [
         lojaId,
-        pix_key || null,
+        normalizedPixKey || null,
         pix_qr_image || null,
         open_time || null,
         close_time || null,

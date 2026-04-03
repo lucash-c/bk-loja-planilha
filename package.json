@@ -15,7 +15,8 @@
     "test:integration:release-routing": "node tests/release-routing.integration.test.js",
     "smoke:release-routing": "bash scripts/smoke-release-routing.sh",
     "test:integration:pdv-push": "node tests/pdv-push.integration.test.js",
-    "test:integration:order-payload-contract": "node tests/order-payload-contract.integration.test.js"
+    "test:integration:order-payload-contract": "node tests/order-payload-contract.integration.test.js",
+    "test:integration:public-pix": "node tests/public-pix.integration.test.js"
   },
   "dependencies": {
     "bcrypt": "^5.1.0",
