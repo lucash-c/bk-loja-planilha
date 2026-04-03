@@ -1,7 +1,7 @@
 const DEFAULT_MCC = '0000';
 const DEFAULT_CURRENCY = '986';
 const DEFAULT_COUNTRY = 'BR';
-const DEFAULT_TXID = 'CHECKOUT';
+const DEFAULT_TXID = 'SEMID';
 
 function normalizeMerchantText(value, maxLength) {
   return String(value || '')

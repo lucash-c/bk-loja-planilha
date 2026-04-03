@@ -1,4 +1,6 @@
 const db = require('../config/db');
+const crypto = require('crypto');
+const QRCode = require('qrcode');
 const { buildPixPayload } = require('../utils/pixPayload');
 
 const PIX_NOT_CONFIGURED_MESSAGE = 'A loja não possui chave PIX configurada.';
@@ -10,6 +12,12 @@ function parseAmount(rawAmount) {
   }
 
   return Number(amount.toFixed(2));
+}
+
+function generateTxid() {
+  const timestampBase36 = Date.now().toString(36).toUpperCase();
+  const randomBase36 = crypto.randomBytes(6).toString('hex').toUpperCase();
+  return `${timestampBase36}${randomBase36}`.replace(/[^A-Z0-9]/g, '').slice(0, 25) || 'SEMID';
 }
 
 async function generatePublicPix({ publicKey, amount, description }) {
@@ -64,22 +72,29 @@ async function generatePublicPix({ publicKey, amount, description }) {
     };
   }
 
+  const txid = generateTxid();
   const qrCodeText = buildPixPayload({
     pixKey,
     amount: safeAmount,
     merchantName: loja.name,
     merchantCity: loja.cidade,
-    description
+    description,
+    txid
   });
-
-  const qrCodeImageUrl = `https://quickchart.io/qr?size=280&text=${encodeURIComponent(qrCodeText)}`;
+  const qrCodeBuffer = await QRCode.toBuffer(qrCodeText, {
+    type: 'png',
+    width: 280,
+    errorCorrectionLevel: 'M',
+    margin: 2
+  });
 
   return {
     ok: true,
     status: 200,
     pix: {
       qr_code_text: qrCodeText,
-      qr_code_image_url: qrCodeImageUrl,
+      qr_code_base64: qrCodeBuffer.toString('base64'),
+      txid,
       amount: safeAmount,
       description: description || null
     }
