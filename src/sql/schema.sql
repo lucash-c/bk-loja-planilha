@@ -66,6 +66,7 @@ CREATE TABLE IF NOT EXISTS user_lojas (
 CREATE TABLE IF NOT EXISTS store_settings (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     loja_id UUID UNIQUE NOT NULL REFERENCES lojas(id) ON DELETE CASCADE,
+    mercado_pago_access_token TEXT,
     pix_key VARCHAR(255),
     pix_qr_image TEXT,
     open_time VARCHAR(10),
@@ -78,6 +79,9 @@ CREATE TABLE IF NOT EXISTS store_settings (
 
 ALTER TABLE store_settings
     ADD COLUMN IF NOT EXISTS orders_realtime_enabled BOOLEAN DEFAULT FALSE;
+
+ALTER TABLE store_settings
+    ADD COLUMN IF NOT EXISTS mercado_pago_access_token TEXT;
 
 -- ==========================================
 -- STORE_DELIVERY_FEES (FRETE POR DISTÂNCIA)

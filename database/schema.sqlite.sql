@@ -52,6 +52,7 @@ CREATE INDEX IF NOT EXISTS idx_user_lojas_loja_id ON user_lojas(loja_id);
 CREATE TABLE IF NOT EXISTS store_settings (
     id TEXT PRIMARY KEY,
     loja_id TEXT UNIQUE NOT NULL,
+    mercado_pago_access_token TEXT,
     pix_key TEXT,
     pix_qr_image TEXT,
     open_time TEXT,

@@ -213,6 +213,12 @@ Base: `/api/store-settings`
 - `GET /`
 - `PUT /` atualiza configurações (somente owner, usado para abrir/fechar a loja via `is_open`)
 
+Contrato atual de PIX por loja (multiloja):
+- Campo canônico: `mercado_pago_access_token`.
+- `pix_key` é legado de compatibilidade e **não** é mais a fonte operacional para checkout PIX.
+- O checkout PIX oficial (QR Code e PIX copia e cola) é gerado via integração com Mercado Pago usando o token da própria loja.
+- O token **não** deve ser exposto em endpoints públicos.
+
 ### Faixas de entrega (admin)
 
 Base: `/api/delivery-fees`
@@ -623,6 +629,15 @@ Regras:
 - Loja inexistente: retorna `404`.
 - Categorias sem produtos não aparecem no agrupamento (o agrupamento é gerado a partir dos produtos visíveis).
 - Produtos com `category_id = null` entram no grupo padrão `Sem categoria`.
+- Campos sensíveis de `store_settings` (ex.: `mercado_pago_access_token`) nunca são expostos no payload público.
+
+### PIX público legado
+
+`POST /public/pix/:public_key`
+
+- Endpoint legado e descontinuado para geração direta de payload EMV.
+- Retorna `410 Gone`.
+- Fluxo oficial: criar pedido com `payment_method = "pix"` para iniciar checkout PIX oficial e receber QR Code / PIX copia e cola via integração Mercado Pago.
 
 ## Deploy (Coolify)
 

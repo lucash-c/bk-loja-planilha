@@ -1,9 +1,6 @@
 const db = require('../config/db');
-const crypto = require('crypto');
-const QRCode = require('qrcode');
-const { buildPixPayload } = require('../utils/pixPayload');
-
-const PIX_NOT_CONFIGURED_MESSAGE = 'A loja não possui chave PIX configurada.';
+const PIX_NOT_CONFIGURED_MESSAGE = 'A loja não possui Mercado Pago Access Token configurado.';
+const PIX_DEPRECATED_MESSAGE = 'Este endpoint foi descontinuado. Use o checkout PIX oficial via criação de pedido.';
 
 function parseAmount(rawAmount) {
   const amount = Number(rawAmount);
@@ -12,12 +9,6 @@ function parseAmount(rawAmount) {
   }
 
   return Number(amount.toFixed(2));
-}
-
-function generateTxid() {
-  const timestampBase36 = Date.now().toString(36).toUpperCase();
-  const randomBase36 = crypto.randomBytes(6).toString('hex').toUpperCase();
-  return `${timestampBase36}${randomBase36}`.replace(/[^A-Z0-9]/g, '').slice(0, 25) || 'SEMID';
 }
 
 async function generatePublicPix({ publicKey, amount, description }) {
@@ -34,10 +25,8 @@ async function generatePublicPix({ publicKey, amount, description }) {
     `
     SELECT
       l.id,
-      l.name,
-      l.cidade,
       l.is_active,
-      ss.pix_key
+      ss.mercado_pago_access_token
     FROM lojas l
     LEFT JOIN store_settings ss ON ss.loja_id = l.id
     WHERE l.public_key = $1
@@ -63,8 +52,8 @@ async function generatePublicPix({ publicKey, amount, description }) {
     };
   }
 
-  const pixKey = String(loja.pix_key || '').trim();
-  if (!pixKey) {
+  const mercadoPagoAccessToken = String(loja.mercado_pago_access_token || '').trim();
+  if (!mercadoPagoAccessToken) {
     return {
       ok: false,
       status: 400,
@@ -72,29 +61,11 @@ async function generatePublicPix({ publicKey, amount, description }) {
     };
   }
 
-  const txid = generateTxid();
-  const qrCodeText = buildPixPayload({
-    pixKey,
-    amount: safeAmount,
-    merchantName: loja.name,
-    merchantCity: loja.cidade,
-    description,
-    txid
-  });
-  const qrCodeBuffer = await QRCode.toBuffer(qrCodeText, {
-    type: 'png',
-    width: 280,
-    errorCorrectionLevel: 'M',
-    margin: 2
-  });
-
   return {
-    ok: true,
-    status: 200,
-    pix: {
-      qr_code_text: qrCodeText,
-      qr_code_base64: qrCodeBuffer.toString('base64'),
-      txid,
+    ok: false,
+    status: 410,
+    error: PIX_DEPRECATED_MESSAGE,
+    hint: {
       amount: safeAmount,
       description: description || null
     }
@@ -103,5 +74,6 @@ async function generatePublicPix({ publicKey, amount, description }) {
 
 module.exports = {
   generatePublicPix,
-  PIX_NOT_CONFIGURED_MESSAGE
+  PIX_NOT_CONFIGURED_MESSAGE,
+  PIX_DEPRECATED_MESSAGE
 };

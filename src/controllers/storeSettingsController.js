@@ -11,6 +11,7 @@ async function getSettings(req, res, next) {
     const result = await db.query(
       `
       SELECT
+        mercado_pago_access_token,
         pix_key,
         pix_qr_image,
         open_time,
@@ -24,6 +25,7 @@ async function getSettings(req, res, next) {
 
     if (!result.rows.length) {
       return res.json({
+        mercado_pago_access_token: null,
         pix_key: null,
         pix_qr_image: null,
         open_time: null,
@@ -52,14 +54,16 @@ async function upsertSettings(req, res, next) {
         .status(403)
         .json({ error: 'Apenas o owner pode alterar as configurações' });
     }
-    const { pix_key, pix_qr_image, open_time, close_time, is_open } = req.body;
-    const normalizedPixKey = typeof pix_key === 'string' ? pix_key.trim() : null;
+    const { mercado_pago_access_token, pix_qr_image, open_time, close_time, is_open } = req.body;
+    const normalizedMercadoPagoAccessToken =
+      typeof mercado_pago_access_token === 'string' ? mercado_pago_access_token.trim() : null;
+    const normalizedIsOpen = is_open === undefined || is_open === null ? true : Boolean(is_open);
 
     const result = await db.query(
       `
       INSERT INTO store_settings (
         loja_id,
-        pix_key,
+        mercado_pago_access_token,
         pix_qr_image,
         open_time,
         close_time,
@@ -68,21 +72,21 @@ async function upsertSettings(req, res, next) {
       VALUES ($1,$2,$3,$4,$5,$6)
       ON CONFLICT (loja_id)
       DO UPDATE SET
-        pix_key      = EXCLUDED.pix_key,
+        mercado_pago_access_token = EXCLUDED.mercado_pago_access_token,
         pix_qr_image = EXCLUDED.pix_qr_image,
         open_time    = EXCLUDED.open_time,
         close_time   = EXCLUDED.close_time,
         is_open      = EXCLUDED.is_open,
-        updated_at   = NOW()
+        updated_at   = CURRENT_TIMESTAMP
       RETURNING *
       `,
       [
         lojaId,
-        normalizedPixKey || null,
+        normalizedMercadoPagoAccessToken || null,
         pix_qr_image || null,
         open_time || null,
         close_time || null,
-        is_open ?? true
+        db.supportsForUpdate ? normalizedIsOpen : (normalizedIsOpen ? 1 : 0)
       ]
     );
 
