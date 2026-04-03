@@ -104,6 +104,32 @@ CREATE INDEX IF NOT EXISTS idx_orders_loja_id ON orders(loja_id);
 CREATE INDEX IF NOT EXISTS idx_orders_external_id ON orders(external_id);
 
 -- ==========================================
+-- PUBLIC_PIX_CHECKOUT_SESSIONS
+-- ==========================================
+CREATE TABLE IF NOT EXISTS public_pix_checkout_sessions (
+    id TEXT PRIMARY KEY,
+    loja_id TEXT NOT NULL,
+    public_key TEXT NOT NULL,
+    correlation_id TEXT NOT NULL,
+    payment_id TEXT,
+    txid TEXT,
+    raw_order_payload TEXT NOT NULL,
+    amount REAL NOT NULL CHECK (amount >= 0),
+    payment_method TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    order_id TEXT,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (loja_id, correlation_id),
+    UNIQUE (loja_id, payment_id),
+    FOREIGN KEY (loja_id) REFERENCES lojas(id) ON DELETE CASCADE,
+    FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_public_pix_checkout_sessions_lookup
+    ON public_pix_checkout_sessions(loja_id, payment_id, correlation_id);
+
+-- ==========================================
 -- ORDER_ITEMS
 -- ==========================================
 CREATE TABLE IF NOT EXISTS order_items (

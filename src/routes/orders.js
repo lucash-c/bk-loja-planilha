@@ -20,6 +20,17 @@ router.post(
   ordersCtrl.createOrder
 );
 
+router.get(
+  '/pix/sessions/:id',
+  identifyStore,
+  ordersCtrl.getPublicPixSessionStatus
+);
+
+router.post(
+  '/pix/callback',
+  ordersCtrl.handlePixPaymentCallback
+);
+
 /**
  * ===============================
  * PAINEL ADMIN (PROTEGIDO)

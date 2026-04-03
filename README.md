@@ -39,6 +39,9 @@ SMTP_HOST=smtp.seudominio.com
 SMTP_PORT=587
 SMTP_USER=usuario
 SMTP_PASS=senha
+
+# Integração de pagamentos (obrigatório para fluxo PIX público)
+PAYMENTS_API_BASE_URL=http://localhost:4100
 ```
 
 ## Rodar localmente (SQLite)
