@@ -17,7 +17,8 @@
     "test:integration:pdv-push": "node tests/pdv-push.integration.test.js",
     "test:integration:order-payload-contract": "node tests/order-payload-contract.integration.test.js",
     "test:integration:public-pix": "node tests/public-pix.integration.test.js",
-    "test:integration:public-pix-checkout": "node tests/public-pix-checkout.integration.test.js"
+    "test:integration:public-pix-checkout": "node tests/public-pix-checkout.integration.test.js",
+    "test:integration:orders-public-status": "node tests/orders-public-status.integration.test.js"
   },
   "dependencies": {
     "bcrypt": "^5.1.0",

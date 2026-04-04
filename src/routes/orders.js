@@ -26,6 +26,12 @@ router.get(
   ordersCtrl.getPublicPixSessionStatus
 );
 
+router.get(
+  '/public/:id',
+  identifyStore,
+  ordersCtrl.getPublicOrderStatus
+);
+
 router.post(
   '/pix/callback',
   ordersCtrl.handlePixPaymentCallback
