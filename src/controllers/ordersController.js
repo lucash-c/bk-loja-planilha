@@ -19,6 +19,51 @@ const {
   fetchPaymentStatus
 } = require('../services/paymentsApiService');
 
+const PIX_SESSION_TTL_MINUTES = 15;
+const PIX_SESSION_TTL_MS = PIX_SESSION_TTL_MINUTES * 60 * 1000;
+
+function buildPixSessionExpiresAt(createdAt = new Date()) {
+  return new Date(createdAt.getTime() + PIX_SESSION_TTL_MS).toISOString();
+}
+
+function isPixSessionPendingAndExpired(session, now = new Date()) {
+  if (!session || session.status !== 'pending' || !session.expires_at) {
+    return false;
+  }
+
+  const expiresAtDate = new Date(session.expires_at);
+  if (Number.isNaN(expiresAtDate.getTime())) {
+    return false;
+  }
+
+  return now.getTime() > expiresAtDate.getTime();
+}
+
+async function expirePixSessionIfNeeded({ tx = db, session }) {
+  if (!session || !isPixSessionPendingAndExpired(session)) {
+    return session;
+  }
+
+  const expiredAt = new Date().toISOString();
+  await tx.query(
+    `
+    UPDATE public_pix_checkout_sessions
+    SET status = 'expired',
+        updated_at = $1
+    WHERE id = $2
+      AND loja_id = $3
+      AND status = 'pending'
+    `,
+    [expiredAt, session.id, session.loja_id]
+  );
+
+  return {
+    ...session,
+    status: 'expired',
+    updated_at: expiredAt
+  };
+}
+
 function stableStringify(value) {
   if (Array.isArray(value)) {
     return `[${value.map(item => stableStringify(item)).join(',')}]`;
@@ -508,6 +553,7 @@ async function createOrder(req, res, next) {
 
       const sessionId = uuidv4();
       const correlationId = uuidv4();
+      const expiresAt = buildPixSessionExpiresAt();
       const draftPayload = {
         external_id,
         customer_name,
@@ -534,9 +580,10 @@ async function createOrder(req, res, next) {
           raw_order_payload,
           amount,
           payment_method,
-          status
+          status,
+          expires_at
         )
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
         `,
         [
           sessionId,
@@ -546,7 +593,8 @@ async function createOrder(req, res, next) {
           JSON.stringify(draftPayload),
           monetarySummary.order_total,
           paymentMethodCode,
-          'pending'
+          'pending',
+          expiresAt
         ]
       );
 
@@ -601,7 +649,8 @@ async function createOrder(req, res, next) {
           payment_id: paymentIntent?.payment_id || paymentIntent?.id || null,
           amount: monetarySummary.order_total,
           payment_method: paymentMethodCode,
-          status: 'pending'
+          status: 'pending',
+          expires_at: expiresAt
         },
         pix: {
           ...(paymentIntent?.pix || {}),
@@ -1627,7 +1676,16 @@ async function handlePixPaymentCallback(req, res, next) {
       return res.status(202).json({ ok: true, reconciled: false, reason: 'session_not_found' });
     }
 
-    const session = sessionRes.rows[0];
+    const session = await expirePixSessionIfNeeded({ session: sessionRes.rows[0] });
+    if (session.status === 'expired') {
+      return res.status(200).json({
+        ok: true,
+        reconciled: true,
+        converted: false,
+        reason: 'session_expired'
+      });
+    }
+
     if (session.order_id || session.status === 'converted') {
       return res.status(200).json({
         ok: true,
@@ -1687,6 +1745,23 @@ async function handlePixPaymentCallback(req, res, next) {
       }
 
       const lockedSession = lockedSessionRes.rows[0];
+      const lockedSessionWithExpiration = await expirePixSessionIfNeeded({
+        tx,
+        session: lockedSession
+      });
+
+      if (lockedSessionWithExpiration.status === 'expired') {
+        return {
+          statusCode: 200,
+          payload: {
+            ok: true,
+            reconciled: true,
+            converted: false,
+            reason: 'session_expired'
+          }
+        };
+      }
+
       if (lockedSession.order_id || lockedSession.status === 'converted') {
         return {
           statusCode: 200,
@@ -1698,10 +1773,10 @@ async function handlePixPaymentCallback(req, res, next) {
         };
       }
 
-      const draftPayload = JSON.parse(lockedSession.raw_order_payload || '{}');
+      const draftPayload = JSON.parse(lockedSessionWithExpiration.raw_order_payload || '{}');
       const createdOrder = await createFinalOrderFromPayload({
         tx,
-        lojaId: lockedSession.loja_id,
+        lojaId: lockedSessionWithExpiration.loja_id,
         payload: draftPayload,
         paymentStatus: 'approved',
         orderStatus: 'new'
@@ -1722,8 +1797,8 @@ async function handlePixPaymentCallback(req, res, next) {
           createdOrder.orderId,
           verifiedPaymentId,
           verifiedCorrelationId || session.correlation_id,
-          lockedSession.id,
-          lockedSession.loja_id
+          lockedSessionWithExpiration.id,
+          lockedSessionWithExpiration.loja_id
         ]
       );
 
@@ -1735,7 +1810,7 @@ async function handlePixPaymentCallback(req, res, next) {
           order_id: createdOrder.orderId
         },
         orderId: createdOrder.orderId,
-        lojaId: lockedSession.loja_id
+        lojaId: lockedSessionWithExpiration.loja_id
       };
     });
 
@@ -1760,7 +1835,7 @@ async function getPublicPixSessionStatus(req, res, next) {
 
     const result = await db.query(
       `
-      SELECT id, loja_id, correlation_id, payment_id, txid, amount, payment_method, status, order_id, created_at, updated_at
+      SELECT id, loja_id, correlation_id, payment_id, txid, amount, payment_method, status, order_id, expires_at, created_at, updated_at
       FROM public_pix_checkout_sessions
       WHERE id = $1
         AND loja_id = $2
@@ -1773,9 +1848,11 @@ async function getPublicPixSessionStatus(req, res, next) {
       return res.status(404).json({ error: 'Sessão PIX não encontrada' });
     }
 
+    const resolvedSession = await expirePixSessionIfNeeded({ session: result.rows[0] });
+
     return res.status(200).json({
       ok: true,
-      session: result.rows[0]
+      session: resolvedSession
     });
   } catch (err) {
     return next(err);

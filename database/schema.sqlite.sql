@@ -119,6 +119,7 @@ CREATE TABLE IF NOT EXISTS public_pix_checkout_sessions (
     payment_method TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'pending',
     order_id TEXT,
+    expires_at TEXT NOT NULL,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (loja_id, correlation_id),

@@ -157,6 +157,7 @@ CREATE TABLE IF NOT EXISTS public_pix_checkout_sessions (
     payment_method TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'failed', 'expired', 'cancelled', 'converted')),
     order_id UUID REFERENCES orders(id) ON DELETE SET NULL,
+    expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
     UNIQUE (loja_id, correlation_id),
