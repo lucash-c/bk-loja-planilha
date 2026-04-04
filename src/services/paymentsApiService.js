@@ -64,8 +64,22 @@ async function fetchPaymentStatus({ paymentId, lojaId, correlationId }) {
   });
 }
 
+
+async function requestPaymentRefund({ paymentId, lojaId, correlationId = null, reason }) {
+  const baseUrl = getPaymentsApiBaseUrl();
+  return requestJson(`${baseUrl}/api/payments/${encodeURIComponent(paymentId)}/refund`, {
+    method: 'POST',
+    body: JSON.stringify({
+      loja_id: lojaId,
+      correlation_id: correlationId,
+      reason
+    })
+  });
+}
+
 module.exports = {
   getPaymentsApiBaseUrl,
   createPixPaymentIntent,
-  fetchPaymentStatus
+  fetchPaymentStatus,
+  requestPaymentRefund
 };

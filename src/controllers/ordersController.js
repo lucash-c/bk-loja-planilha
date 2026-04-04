@@ -18,6 +18,10 @@ const {
   createPixPaymentIntent,
   fetchPaymentStatus
 } = require('../services/paymentsApiService');
+const {
+  REFUND_REASONS,
+  requestAutomaticRefund
+} = require('../services/paymentsRefundService');
 
 const PIX_SESSION_TTL_MINUTES = 15;
 const PIX_SESSION_TTL_MS = PIX_SESSION_TTL_MINUTES * 60 * 1000;
@@ -129,6 +133,24 @@ async function getStoreMercadoPagoAccessToken(lojaId) {
 
   const token = String(settingsRes.rows[0].mercado_pago_access_token || '').trim();
   return token || null;
+}
+
+async function isStoreOpenForCheckout({ lojaId, tx = db }) {
+  const settingsRes = await tx.query(
+    `
+    SELECT COALESCE(is_open, TRUE) AS is_open
+    FROM store_settings
+    WHERE loja_id = $1
+    LIMIT 1
+    `,
+    [lojaId]
+  );
+
+  if (!settingsRes.rows.length) {
+    return true;
+  }
+
+  return Boolean(settingsRes.rows[0].is_open);
 }
 
 async function handleIdempotency({ req, res, storeId, scope, orderId, execute, onCompleted }) {
@@ -1634,6 +1656,57 @@ async function updateStatus(req, res, next) {
     );
 
     const updatedOrder = updated.rows[0];
+
+    const normalizedStatus = String(status || '').trim().toLowerCase();
+    const rejectionStatuses = new Set(['cancelado', 'canceled', 'recusado', 'rejeitado']);
+    if (
+      updatedOrder &&
+      rejectionStatuses.has(normalizedStatus) &&
+      String(updatedOrder.payment_method || '').trim().toLowerCase() === 'pix' &&
+      String(updatedOrder.payment_status || '').trim().toLowerCase() === 'approved'
+    ) {
+      const sessionLookup = await db.query(
+        `
+        SELECT id, loja_id, payment_id, correlation_id, status
+        FROM public_pix_checkout_sessions
+        WHERE loja_id = $1
+          AND order_id = $2
+        LIMIT 1
+        `,
+        [lojaId, updatedOrder.id]
+      );
+
+      if (sessionLookup.rows.length) {
+        const pixSession = sessionLookup.rows[0];
+        if (pixSession.payment_id) {
+          const refundOutcome = await requestAutomaticRefund({
+            lojaId,
+            paymentId: pixSession.payment_id,
+            correlationId: pixSession.correlation_id || null,
+            sessionId: pixSession.id,
+            orderId: updatedOrder.id,
+            triggerReason: REFUND_REASONS.ORDER_REJECTED_AFTER_PAYMENT,
+            paymentStatus: updatedOrder.payment_status
+          });
+
+          await db.query(
+            `
+            UPDATE public_pix_checkout_sessions
+            SET status = $1,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = $2
+              AND loja_id = $3
+            `,
+            [
+              refundOutcome.ok ? 'refund_requested' : pixSession.status,
+              pixSession.id,
+              lojaId
+            ]
+          );
+        }
+      }
+    }
+
     res.json(updatedOrder);
 
     if (updatedOrder) {
@@ -1677,14 +1750,6 @@ async function handlePixPaymentCallback(req, res, next) {
     }
 
     const session = await expirePixSessionIfNeeded({ session: sessionRes.rows[0] });
-    if (session.status === 'expired') {
-      return res.status(200).json({
-        ok: true,
-        reconciled: true,
-        converted: false,
-        reason: 'session_expired'
-      });
-    }
 
     if (session.order_id || session.status === 'converted') {
       return res.status(200).json({
@@ -1751,6 +1816,21 @@ async function handlePixPaymentCallback(req, res, next) {
       });
 
       if (lockedSessionWithExpiration.status === 'expired') {
+        await tx.query(
+          `
+          UPDATE public_pix_checkout_sessions
+          SET status = $1,
+              updated_at = CURRENT_TIMESTAMP
+          WHERE id = $2
+            AND loja_id = $3
+          `,
+          [
+            'refund_pending',
+            lockedSessionWithExpiration.id,
+            lockedSessionWithExpiration.loja_id
+          ]
+        );
+
         return {
           statusCode: 200,
           payload: {
@@ -1758,6 +1838,17 @@ async function handlePixPaymentCallback(req, res, next) {
             reconciled: true,
             converted: false,
             reason: 'session_expired'
+          },
+          refundContext: {
+            lojaId: lockedSessionWithExpiration.loja_id,
+            paymentId: resolvedPaymentId,
+            correlationId: lockedSessionWithExpiration.correlation_id || verifiedCorrelationId || correlationId || null,
+            sessionId: lockedSessionWithExpiration.id,
+            triggerReason: REFUND_REASONS.OPERATIONAL_BLOCK_AFTER_PAYMENT,
+            paymentStatus: verifiedStatus,
+            paymentSnapshotLojaId: verifiedLojaId,
+            expectedCorrelationId: lockedSessionWithExpiration.correlation_id || null,
+            observedCorrelationId: verifiedCorrelationId || null
           }
         };
       }
@@ -1769,6 +1860,65 @@ async function handlePixPaymentCallback(req, res, next) {
             ok: true,
             converted: true,
             order_id: lockedSession.order_id
+          }
+        };
+      }
+
+      const storeIsOpen = await isStoreOpenForCheckout({
+        lojaId: lockedSessionWithExpiration.loja_id,
+        tx
+      });
+
+      if (!storeIsOpen) {
+        await tx.query(
+          `
+          UPDATE public_pix_checkout_sessions
+          SET status = $1,
+              payment_id = $2,
+              correlation_id = COALESCE(correlation_id, $3),
+              updated_at = CURRENT_TIMESTAMP
+          WHERE id = $4
+            AND loja_id = $5
+          `,
+          [
+            'refund_pending',
+            verifiedPaymentId,
+            verifiedCorrelationId || session.correlation_id,
+            lockedSessionWithExpiration.id,
+            lockedSessionWithExpiration.loja_id
+          ]
+        );
+
+        return {
+          statusCode: 200,
+          payload: {
+            ok: true,
+            reconciled: true,
+            converted: false,
+            reason: 'store_closed_before_conversion'
+          },
+          refundContext: {
+            lojaId: lockedSessionWithExpiration.loja_id,
+            paymentId: resolvedPaymentId,
+            correlationId: lockedSessionWithExpiration.correlation_id || verifiedCorrelationId || correlationId || null,
+            sessionId: lockedSessionWithExpiration.id,
+            triggerReason: REFUND_REASONS.STORE_CLOSED_BEFORE_CONVERSION,
+            paymentStatus: verifiedStatus,
+            paymentSnapshotLojaId: verifiedLojaId,
+            expectedCorrelationId: lockedSessionWithExpiration.correlation_id || null,
+            observedCorrelationId: verifiedCorrelationId || null
+          }
+        };
+      }
+
+      if (lockedSession.status === 'refund_requested') {
+        return {
+          statusCode: 200,
+          payload: {
+            ok: true,
+            reconciled: true,
+            converted: false,
+            reason: 'refund_already_requested'
           }
         };
       }
@@ -1813,6 +1963,29 @@ async function handlePixPaymentCallback(req, res, next) {
         lojaId: lockedSessionWithExpiration.loja_id
       };
     });
+
+    if (conversion.refundContext) {
+      const refundOutcome = await requestAutomaticRefund(conversion.refundContext);
+      await db.query(
+        `
+        UPDATE public_pix_checkout_sessions
+        SET status = $1,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = $2
+          AND loja_id = $3
+        `,
+        [
+          refundOutcome.ok ? 'refund_requested' : 'refund_blocked',
+          conversion.refundContext.sessionId,
+          conversion.refundContext.lojaId
+        ]
+      );
+
+      conversion.payload.refund = {
+        requested: Boolean(refundOutcome.ok),
+        status: refundOutcome.status
+      };
+    }
 
     if (conversion.orderId) {
       await publishOrderEvent({
