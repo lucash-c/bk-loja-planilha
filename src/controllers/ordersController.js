@@ -25,6 +25,9 @@ const {
 
 const PIX_SESSION_TTL_MINUTES = 15;
 const PIX_SESSION_TTL_MS = PIX_SESSION_TTL_MINUTES * 60 * 1000;
+const ORDER_REJECTION_STATUSES = new Set(['cancelado', 'canceled', 'recusado', 'rejeitado']);
+const ORDER_PUBLIC_REFUND_MESSAGE_CODE = 'order_cancelled_refund_requested';
+const ORDER_PUBLIC_REFUND_MESSAGE = 'Por algum motivo o pedido não foi aceito e o reembolso já está sendo solicitado. Caso não receba nas próximas 24 horas, entre em contato com a loja.';
 
 function buildPixSessionExpiresAt(createdAt = new Date()) {
   return new Date(createdAt.getTime() + PIX_SESSION_TTL_MS).toISOString();
@@ -1658,10 +1661,9 @@ async function updateStatus(req, res, next) {
     const updatedOrder = updated.rows[0];
 
     const normalizedStatus = String(status || '').trim().toLowerCase();
-    const rejectionStatuses = new Set(['cancelado', 'canceled', 'recusado', 'rejeitado']);
     if (
       updatedOrder &&
-      rejectionStatuses.has(normalizedStatus) &&
+      ORDER_REJECTION_STATUSES.has(normalizedStatus) &&
       String(updatedOrder.payment_method || '').trim().toLowerCase() === 'pix' &&
       String(updatedOrder.payment_status || '').trim().toLowerCase() === 'approved'
     ) {
@@ -2032,6 +2034,73 @@ async function getPublicPixSessionStatus(req, res, next) {
   }
 }
 
+async function getPublicOrderStatus(req, res, next) {
+  try {
+    const lojaId = req.loja.id;
+    const orderId = req.params.id;
+
+    const orderLookup = await db.query(
+      `
+      SELECT *
+      FROM orders
+      WHERE id = $1
+        AND loja_id = $2
+      LIMIT 1
+      `,
+      [orderId, lojaId]
+    );
+
+    if (!orderLookup.rows.length) {
+      return res.status(404).json({ error: 'Pedido não encontrado' });
+    }
+
+    const order = orderLookup.rows[0];
+
+    let customerMessageCode = null;
+    let customerMessage = null;
+    const normalizedStatus = String(order.status || '').trim().toLowerCase();
+    const isPixApproved = (
+      String(order.payment_method || '').trim().toLowerCase() === 'pix' &&
+      String(order.payment_status || '').trim().toLowerCase() === 'approved'
+    );
+
+    if (ORDER_REJECTION_STATUSES.has(normalizedStatus) && isPixApproved) {
+      const refundEvidence = await db.query(
+        `
+        SELECT 1
+        FROM public_pix_checkout_sessions
+        WHERE loja_id = $1
+          AND order_id = $2
+          AND status = 'refund_requested'
+        LIMIT 1
+        `,
+        [lojaId, order.id]
+      );
+
+      if (refundEvidence.rows.length) {
+        customerMessageCode = ORDER_PUBLIC_REFUND_MESSAGE_CODE;
+        customerMessage = ORDER_PUBLIC_REFUND_MESSAGE;
+      }
+    }
+
+    return res.status(200).json({
+      ok: true,
+      order: {
+        id: order.id,
+        status: order.status || null,
+        payment_method: order.payment_method || null,
+        payment_status: order.payment_status || null,
+        created_at: order.created_at || null,
+        updated_at: order.updated_at || null,
+        customer_message_code: customerMessageCode,
+        customer_message: customerMessage
+      }
+    });
+  } catch (err) {
+    return next(err);
+  }
+}
+
 async function streamOrders(req, res, next) {
   try {
     if (!req.loja?.id || req.tokenType !== 'store') {
@@ -2076,6 +2145,7 @@ module.exports = {
   updateStatus,
   handlePixPaymentCallback,
   getPublicPixSessionStatus,
+  getPublicOrderStatus,
   streamOrders,
   EVENT_VERSION
 };
