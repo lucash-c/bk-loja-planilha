@@ -12,6 +12,7 @@ const db = require('../src/config/db');
 const ordersController = require('../src/controllers/ordersController');
 
 const paymentSnapshots = new Map();
+const refundCalls = [];
 let paymentCounter = 0;
 
 const originalFetch = global.fetch;
@@ -63,6 +64,19 @@ global.fetch = async (url, options = {}) => {
     };
   }
 
+  if (method === 'POST' && String(url).includes('/refund')) {
+    const body = JSON.parse(options.body || '{}');
+    refundCalls.push({ url: String(url), body });
+    return {
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({
+        status: 'refunded',
+        payment_id: body?.payment_id || null
+      })
+    };
+  }
+
   throw new Error(`unexpected fetch call ${method} ${url}`);
 };
 
@@ -98,17 +112,18 @@ async function invoke(handler, req) {
 
 async function setupSchema() {
   await db.query('CREATE TABLE lojas (id TEXT PRIMARY KEY, public_key TEXT UNIQUE, name TEXT, is_active INTEGER)');
-  await db.query('CREATE TABLE store_settings (loja_id TEXT UNIQUE, mercado_pago_access_token TEXT)');
+  await db.query('CREATE TABLE store_settings (loja_id TEXT UNIQUE, mercado_pago_access_token TEXT, is_open INTEGER)');
   await db.query('CREATE TABLE store_payment_methods (id TEXT PRIMARY KEY, loja_id TEXT, code TEXT, label TEXT, is_active INTEGER)');
   await db.query('CREATE TABLE orders (id TEXT PRIMARY KEY, loja_id TEXT, external_id TEXT, customer_name TEXT, customer_whatsapp TEXT, order_type TEXT, delivery_address TEXT, delivery_distance_km NUMERIC, delivery_estimated_time_minutes INTEGER, delivery_fee NUMERIC, total NUMERIC, payment_method TEXT, origin TEXT, payment_status TEXT, status TEXT, notes TEXT, created_at TEXT)');
   await db.query('CREATE TABLE order_items (id TEXT PRIMARY KEY, order_id TEXT, product_name TEXT, quantity INTEGER, unit_price NUMERIC, total_price NUMERIC, observation TEXT, options_json TEXT, created_at TEXT)');
   await db.query('CREATE TABLE order_jobs (id TEXT PRIMARY KEY, order_id TEXT, loja_id TEXT, job_type TEXT, payload TEXT)');
   await db.query('CREATE TABLE public_pix_checkout_sessions (id TEXT PRIMARY KEY, loja_id TEXT, public_key TEXT, correlation_id TEXT, payment_id TEXT, txid TEXT, raw_order_payload TEXT, amount NUMERIC, payment_method TEXT, status TEXT, order_id TEXT, expires_at TEXT, created_at TEXT, updated_at TEXT)');
+  await db.query('CREATE TABLE payment_refund_requests (id TEXT PRIMARY KEY, loja_id TEXT, payment_id TEXT, correlation_id TEXT, session_id TEXT, order_id TEXT, trigger_reason TEXT, status TEXT, provider_response_payload TEXT, idempotency_key TEXT UNIQUE, created_at TEXT, updated_at TEXT)');
 }
 
 async function seedStore(lojaId, publicKey) {
   await db.query('INSERT INTO lojas (id, public_key, name, is_active) VALUES ($1,$2,$3,$4)', [lojaId, publicKey, `Loja ${lojaId}`, 1]);
-  await db.query('INSERT INTO store_settings (loja_id, mercado_pago_access_token) VALUES ($1,$2)', [lojaId, `APP_USR-${lojaId}`]);
+  await db.query('INSERT INTO store_settings (loja_id, mercado_pago_access_token, is_open) VALUES ($1,$2,$3)', [lojaId, `APP_USR-${lojaId}`, 1]);
   await db.query('INSERT INTO store_payment_methods (id, loja_id, code, label, is_active) VALUES ($1,$2,$3,$4,$5)', [`pm-${lojaId}-pix`, lojaId, 'pix', 'PIX', 1]);
   await db.query('INSERT INTO store_payment_methods (id, loja_id, code, label, is_active) VALUES ($1,$2,$3,$4,$5)', [`pm-${lojaId}-dinheiro`, lojaId, 'dinheiro', 'Dinheiro', 1]);
 }
@@ -207,6 +222,76 @@ async function run() {
     }
   });
   assert.strictEqual(callbackPending.statusCode, 202);
+  assert.strictEqual(refundCalls.length, 0);
+
+  const missingPaymentIdSession = await invoke(ordersController.createOrder, {
+    loja: { id: 'loja-a' },
+    headers: { 'x-loja-key': 'pub-a' },
+    query: {},
+    body: makePixPayload({ external_id: 'pix-no-payment-id' })
+  });
+  await db.query(
+    'UPDATE public_pix_checkout_sessions SET payment_id = NULL WHERE id = $1',
+    [missingPaymentIdSession.body.checkout_session.id]
+  );
+  const callbackMissingPaymentId = await invoke(ordersController.handlePixPaymentCallback, {
+    body: {
+      loja_id: 'loja-a',
+      correlation_id: missingPaymentIdSession.body.checkout_session.correlation_id
+    }
+  });
+  assert.strictEqual(callbackMissingPaymentId.statusCode, 400);
+  assert.match(callbackMissingPaymentId.body.error, /payment_id ausente/i);
+  assert.strictEqual(refundCalls.length, 0);
+
+  const closedStoreSession = await invoke(ordersController.createOrder, {
+    loja: { id: 'loja-a' },
+    headers: { 'x-loja-key': 'pub-a' },
+    query: {},
+    body: makePixPayload({ external_id: 'pix-closed-store' })
+  });
+  const closedStoreSessionDb = await db.query('SELECT * FROM public_pix_checkout_sessions WHERE id = $1', [closedStoreSession.body.checkout_session.id]);
+  const closedStorePaymentId = closedStoreSession.body.pix.payment_id;
+  paymentSnapshots.set(closedStorePaymentId, {
+    payment_id: closedStorePaymentId,
+    loja_id: 'loja-a',
+    correlation_id: closedStoreSessionDb.rows[0].correlation_id,
+    status: 'approved'
+  });
+  await db.query('UPDATE store_settings SET is_open = 0 WHERE loja_id = $1', ['loja-a']);
+
+  const callbackClosedStore = await invoke(ordersController.handlePixPaymentCallback, {
+    body: {
+      loja_id: 'loja-a',
+      payment_id: closedStorePaymentId,
+      correlation_id: closedStoreSessionDb.rows[0].correlation_id
+    }
+  });
+  assert.strictEqual(callbackClosedStore.statusCode, 200);
+  assert.strictEqual(callbackClosedStore.body.converted, false);
+  assert.strictEqual(callbackClosedStore.body.reason, 'store_closed_before_conversion');
+  assert.strictEqual(refundCalls.length, 1);
+  assert.match(refundCalls[0].url, new RegExp(`/api/payments/${closedStorePaymentId}/refund$`));
+  assert.strictEqual(refundCalls[0].body.loja_id, 'loja-a');
+  assert.strictEqual(refundCalls[0].body.reason, 'store_closed_before_conversion');
+
+  const refundRowsAfterClosedStore = await db.query(
+    'SELECT * FROM payment_refund_requests WHERE loja_id = $1 AND payment_id = $2',
+    ['loja-a', closedStorePaymentId]
+  );
+  assert.strictEqual(refundRowsAfterClosedStore.rows.length, 1);
+  assert.strictEqual(refundRowsAfterClosedStore.rows[0].status, 'succeeded');
+
+  const callbackClosedStoreDuplicate = await invoke(ordersController.handlePixPaymentCallback, {
+    body: {
+      loja_id: 'loja-a',
+      payment_id: closedStorePaymentId,
+      correlation_id: closedStoreSessionDb.rows[0].correlation_id
+    }
+  });
+  assert.strictEqual(callbackClosedStoreDuplicate.statusCode, 200);
+  assert.strictEqual(refundCalls.length, 1);
+  await db.query('UPDATE store_settings SET is_open = 1 WHERE loja_id = $1', ['loja-a']);
 
   await db.query(
     'UPDATE public_pix_checkout_sessions SET expires_at = $1 WHERE id = $2 AND loja_id = $3',
@@ -228,8 +313,10 @@ async function run() {
   assert.strictEqual(callbackExpired.statusCode, 200);
   assert.strictEqual(callbackExpired.body.converted, false);
   assert.strictEqual(callbackExpired.body.reason, 'session_expired');
+  assert.strictEqual(refundCalls.length, 2);
+  assert.strictEqual(refundCalls[1].body.reason, 'operational_block_after_payment');
   const expiredSessionRow = await db.query('SELECT status, order_id FROM public_pix_checkout_sessions WHERE id = $1', [notApprovedSession.body.checkout_session.id]);
-  assert.strictEqual(expiredSessionRow.rows[0].status, 'expired');
+  assert.strictEqual(expiredSessionRow.rows[0].status, 'refund_requested');
   assert.strictEqual(expiredSessionRow.rows[0].order_id, null);
 
   const sessionStatusAfterExpiry = await invoke(ordersController.getPublicPixSessionStatus, {
@@ -237,7 +324,7 @@ async function run() {
     params: { id: notApprovedSession.body.checkout_session.id }
   });
   assert.strictEqual(sessionStatusAfterExpiry.statusCode, 200);
-  assert.strictEqual(sessionStatusAfterExpiry.body.session.status, 'expired');
+  assert.strictEqual(sessionStatusAfterExpiry.body.session.status, 'refund_requested');
 
   const divergentSession = await invoke(ordersController.createOrder, {
     loja: { id: 'loja-a' },
@@ -263,6 +350,7 @@ async function run() {
     }
   });
   assert.strictEqual(callbackDivergent.statusCode, 409);
+  assert.strictEqual(refundCalls.length, 2);
 
   const lojaBSession = await invoke(ordersController.createOrder, {
     loja: { id: 'loja-b' },
