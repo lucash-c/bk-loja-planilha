@@ -103,7 +103,7 @@ async function setupSchema() {
   await db.query('CREATE TABLE orders (id TEXT PRIMARY KEY, loja_id TEXT, external_id TEXT, customer_name TEXT, customer_whatsapp TEXT, order_type TEXT, delivery_address TEXT, delivery_distance_km NUMERIC, delivery_estimated_time_minutes INTEGER, delivery_fee NUMERIC, total NUMERIC, payment_method TEXT, origin TEXT, payment_status TEXT, status TEXT, notes TEXT, created_at TEXT)');
   await db.query('CREATE TABLE order_items (id TEXT PRIMARY KEY, order_id TEXT, product_name TEXT, quantity INTEGER, unit_price NUMERIC, total_price NUMERIC, observation TEXT, options_json TEXT, created_at TEXT)');
   await db.query('CREATE TABLE order_jobs (id TEXT PRIMARY KEY, order_id TEXT, loja_id TEXT, job_type TEXT, payload TEXT)');
-  await db.query('CREATE TABLE public_pix_checkout_sessions (id TEXT PRIMARY KEY, loja_id TEXT, public_key TEXT, correlation_id TEXT, payment_id TEXT, txid TEXT, raw_order_payload TEXT, amount NUMERIC, payment_method TEXT, status TEXT, order_id TEXT, created_at TEXT, updated_at TEXT)');
+  await db.query('CREATE TABLE public_pix_checkout_sessions (id TEXT PRIMARY KEY, loja_id TEXT, public_key TEXT, correlation_id TEXT, payment_id TEXT, txid TEXT, raw_order_payload TEXT, amount NUMERIC, payment_method TEXT, status TEXT, order_id TEXT, expires_at TEXT, created_at TEXT, updated_at TEXT)');
 }
 
 async function seedStore(lojaId, publicKey) {
@@ -137,6 +137,7 @@ async function run() {
 
   assert.strictEqual(pixPending.statusCode, 202);
   assert.strictEqual(pixPending.body.checkout_session.status, 'pending');
+  assert.ok(pixPending.body.checkout_session.expires_at);
   const sessionId = pixPending.body.checkout_session.id;
   const paymentId = pixPending.body.pix.payment_id;
 
@@ -146,6 +147,9 @@ async function run() {
   const sessionRow = await db.query('SELECT * FROM public_pix_checkout_sessions WHERE id = $1 AND loja_id = $2', [sessionId, 'loja-a']);
   assert.strictEqual(sessionRow.rows.length, 1);
   assert.strictEqual(sessionRow.rows[0].status, 'pending');
+  const expiresAtMs = new Date(sessionRow.rows[0].expires_at).getTime();
+  const remainingTtlMs = expiresAtMs - Date.now();
+  assert.ok(remainingTtlMs <= 16 * 60 * 1000 && remainingTtlMs >= 13 * 60 * 1000);
 
   paymentSnapshots.set(paymentId, {
     payment_id: paymentId,
@@ -203,6 +207,37 @@ async function run() {
     }
   });
   assert.strictEqual(callbackPending.statusCode, 202);
+
+  await db.query(
+    'UPDATE public_pix_checkout_sessions SET expires_at = $1 WHERE id = $2 AND loja_id = $3',
+    [new Date(Date.now() - 60 * 1000).toISOString(), notApprovedSession.body.checkout_session.id, 'loja-a']
+  );
+  paymentSnapshots.set(notApprovedPaymentId, {
+    payment_id: notApprovedPaymentId,
+    loja_id: 'loja-a',
+    correlation_id: notApprovedSessionRow.rows[0].correlation_id,
+    status: 'approved'
+  });
+  const callbackExpired = await invoke(ordersController.handlePixPaymentCallback, {
+    body: {
+      loja_id: 'loja-a',
+      payment_id: notApprovedPaymentId,
+      correlation_id: notApprovedSessionRow.rows[0].correlation_id
+    }
+  });
+  assert.strictEqual(callbackExpired.statusCode, 200);
+  assert.strictEqual(callbackExpired.body.converted, false);
+  assert.strictEqual(callbackExpired.body.reason, 'session_expired');
+  const expiredSessionRow = await db.query('SELECT status, order_id FROM public_pix_checkout_sessions WHERE id = $1', [notApprovedSession.body.checkout_session.id]);
+  assert.strictEqual(expiredSessionRow.rows[0].status, 'expired');
+  assert.strictEqual(expiredSessionRow.rows[0].order_id, null);
+
+  const sessionStatusAfterExpiry = await invoke(ordersController.getPublicPixSessionStatus, {
+    loja: { id: 'loja-a' },
+    params: { id: notApprovedSession.body.checkout_session.id }
+  });
+  assert.strictEqual(sessionStatusAfterExpiry.statusCode, 200);
+  assert.strictEqual(sessionStatusAfterExpiry.body.session.status, 'expired');
 
   const divergentSession = await invoke(ordersController.createOrder, {
     loja: { id: 'loja-a' },
