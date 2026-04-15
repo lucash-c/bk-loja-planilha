@@ -1016,27 +1016,36 @@ async function acceptTransactional(req, res, next) {
 
 async function createPdvTransactional(req, res, next) {
   try {
+    if (!req.loja?.id || req.tokenType !== 'store') {
+      return res.status(403).json({ error: 'Access denied for this store' });
+    }
+
+    const lojaId = req.loja.id;
     const lojaKey = req.headers['x-loja-key'];
-    if (!lojaKey) {
-      return res.status(400).json({ error: 'X-LOJA-KEY é obrigatório' });
+
+    if (lojaKey) {
+      const lojaRes = await db.query(
+        `
+        SELECT id
+        FROM lojas
+        WHERE public_key = $1
+          AND is_active = TRUE
+        LIMIT 1
+        `,
+        [lojaKey]
+      );
+
+      if (!lojaRes.rows.length) {
+        return res.status(404).json({ error: 'Loja não encontrada ou inativa' });
+      }
+
+      if (String(lojaRes.rows[0].id) !== String(lojaId)) {
+        return res.status(403).json({
+          error: 'Mismatch entre loja autenticada e X-LOJA-KEY'
+        });
+      }
     }
 
-    const lojaRes = await db.query(
-      `
-      SELECT id, name
-      FROM lojas
-      WHERE public_key = $1
-        AND is_active = TRUE
-      LIMIT 1
-      `,
-      [lojaKey]
-    );
-
-    if (!lojaRes.rows.length) {
-      return res.status(404).json({ error: 'Loja não encontrada ou inativa' });
-    }
-
-    const lojaId = lojaRes.rows[0].id;
     const scope = 'pdv-transactional';
 
     return await handleIdempotency({

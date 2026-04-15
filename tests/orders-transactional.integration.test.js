@@ -56,7 +56,7 @@ async function invoke(handler, req) {
 
 async function seedStore({ lojaId = 'loja-1', key = 'loja-key', credits = 100 }) {
   await db.query('INSERT INTO lojas (id, public_key, name, is_active) VALUES ($1,$2,$3,$4)', [lojaId, key, 'Loja Teste', 1]);
-  await db.query('INSERT INTO user_lojas (id, user_id, loja_id, role, credits) VALUES ($1,$2,$3,$4,$5)', ['ul-1', 'owner-1', lojaId, 'owner', credits]);
+  await db.query('INSERT INTO user_lojas (id, user_id, loja_id, role, credits) VALUES ($1,$2,$3,$4,$5)', [`ul-${lojaId}`, `owner-${lojaId}`, lojaId, 'owner', credits]);
 }
 
 async function getCredits(lojaId) {
@@ -67,6 +67,10 @@ async function getCredits(lojaId) {
 async function run() {
   await setupSchema();
   await seedStore({});
+  const pdvAuthContext = {
+    tokenType: 'store',
+    loja: { id: 'loja-1' }
+  };
 
   // retry idempotente não duplica débito
   await db.query("INSERT INTO orders (id, loja_id, total, status, origin) VALUES ($1,$2,$3,$4,$5)", ['o-1', 'loja-1', 10, 'aguardando aceite', 'cliente']);
@@ -114,6 +118,7 @@ async function run() {
   idempotencyCache.resetMemoryStore();
   const beforeRollbackCredits = await getCredits('loja-1');
   const pdvFail = await invoke(ordersController.createPdvTransactional, {
+    ...pdvAuthContext,
     headers: {
       'x-loja-key': 'loja-key',
       'idempotency-key': 'k-rollback',
@@ -137,6 +142,7 @@ async function run() {
   // payload diferente com mesma chave retorna 409
   idempotencyCache.resetMemoryStore();
   const pdvOk = await invoke(ordersController.createPdvTransactional, {
+    ...pdvAuthContext,
     headers: { 'x-loja-key': 'loja-key', 'idempotency-key': 'k-mismatch' },
     body: {
       external_id: 'pdv-mismatch-1',
@@ -149,6 +155,7 @@ async function run() {
   assert.strictEqual(await getCredits('loja-1'), 97);
 
   const pdvMismatch = await invoke(ordersController.createPdvTransactional, {
+    ...pdvAuthContext,
     headers: { 'x-loja-key': 'loja-key', 'idempotency-key': 'k-mismatch' },
     body: {
       external_id: 'pdv-mismatch-2',
@@ -158,9 +165,33 @@ async function run() {
   });
   assert.strictEqual(pdvMismatch.statusCode, 409);
 
+  const unauthorizedPdv = await invoke(ordersController.createPdvTransactional, {
+    headers: { 'x-loja-key': 'loja-key' },
+    body: {
+      external_id: 'pdv-without-store-token',
+      total: 5,
+      items: [{ product_name: 'X', quantity: 1, unit_price: 5 }]
+    }
+  });
+  assert.strictEqual(unauthorizedPdv.statusCode, 403);
+
+  await seedStore({ lojaId: 'loja-2', key: 'loja-key-2', credits: 100 });
+  const storeMismatchPdv = await invoke(ordersController.createPdvTransactional, {
+    ...pdvAuthContext,
+    headers: { 'x-loja-key': 'loja-key-2' },
+    body: {
+      external_id: 'pdv-store-mismatch',
+      total: 5,
+      items: [{ product_name: 'X', quantity: 1, unit_price: 5 }]
+    }
+  });
+  assert.strictEqual(storeMismatchPdv.statusCode, 403);
+  assert.match(storeMismatchPdv.body.error, /Mismatch/);
+
 
   // método de pagamento inválido deve falhar
   const invalidPaymentRes = await invoke(ordersController.createPdvTransactional, {
+    ...pdvAuthContext,
     headers: { 'x-loja-key': 'loja-key', 'idempotency-key': 'k-payment-invalid' },
     body: {
       external_id: 'pdv-invalid-payment',
@@ -174,6 +205,7 @@ async function run() {
 
   await db.query('INSERT INTO store_payment_methods (id, loja_id, code, label, is_active) VALUES ($1,$2,$3,$4,$5)', ['pm-1', 'loja-1', 'pix', 'PIX', 1]);
   const validPaymentRes = await invoke(ordersController.createPdvTransactional, {
+    ...pdvAuthContext,
     headers: { 'x-loja-key': 'loja-key', 'idempotency-key': 'k-payment-valid' },
     body: {
       external_id: 'pdv-valid-payment',

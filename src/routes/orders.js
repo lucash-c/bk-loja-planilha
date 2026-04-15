@@ -65,6 +65,7 @@ router.post(
 
 router.post(
   '/pdv-transactional',
+  authenticate,
   ordersCtrl.createPdvTransactional
 );
 
