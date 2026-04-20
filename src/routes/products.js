@@ -20,8 +20,15 @@ router.get('/:id', authenticate, productsController.getProductById);
 // UPDATE
 router.put('/:id', authenticate, productsController.updateProduct);
 
-// DELETE (hard delete)
+// DELETE legado: desativação operacional (soft disable)
 router.delete('/:id', authenticate, productsController.disableProduct);
+
+// Endpoints explícitos para ativação/inativação
+router.patch('/:id/deactivate', authenticate, productsController.deactivateProduct);
+router.patch('/:id/activate', authenticate, productsController.activateProduct);
+
+// Exclusão permanente (hard delete explícito)
+router.delete('/:id/hard', authenticate, productsController.hardDeleteProduct);
 
 /**
  * ROTAS DE GRUPOS DE OPÇÕES

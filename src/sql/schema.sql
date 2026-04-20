@@ -293,6 +293,7 @@ CREATE TABLE IF NOT EXISTS categories (
     name TEXT NOT NULL,
     slug TEXT NOT NULL,
     image_url TEXT,
+    is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
@@ -313,6 +314,9 @@ CREATE TABLE IF NOT EXISTS products (
     is_visible BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
+
+ALTER TABLE categories
+    ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;
 
 -- Migração segura para bases existentes
 ALTER TABLE categories
