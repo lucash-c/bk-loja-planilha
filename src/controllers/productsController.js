@@ -95,6 +95,7 @@ async function listProducts(req, res) {
     const params = [lojaId];
 
     if (active === 'true') query += ' AND is_active = true';
+    if (active === 'false') query += ' AND is_active = false';
     if (visible === 'true') query += ' AND is_visible = true';
 
     query += ' ORDER BY created_at DESC';
@@ -196,29 +197,103 @@ async function updateProduct(req, res) {
   }
 }
 
-async function disableProduct(req, res) {
+async function deactivateProduct(req, res) {
   try {
     const lojaId = req.loja.id;
     const { id } = req.params;
 
-    const { rows } = await db.query(
+    const updateRes = await db.query(
       `
-      DELETE FROM products
+      UPDATE products
+      SET is_active = FALSE
       WHERE id = $1
         AND loja_id = $2
-      RETURNING *
       `,
       [id, lojaId]
     );
 
-    if (!rows.length) {
+    if (!updateRes.rowCount) {
       return res.status(404).json({ error: 'Produto não encontrado' });
     }
 
-    return res.json(rows[0]);
+    const productRes = await db.query(
+      `
+      SELECT *
+      FROM products
+      WHERE id = $1
+        AND loja_id = $2
+      `,
+      [id, lojaId]
+    );
+
+    return res.json(productRes.rows[0]);
   } catch (err) {
     console.error('Erro ao desativar produto:', err);
     return res.status(500).json({ error: 'Erro interno ao desativar produto' });
+  }
+}
+
+async function activateProduct(req, res) {
+  try {
+    const lojaId = req.loja.id;
+    const { id } = req.params;
+
+    const updateRes = await db.query(
+      `
+      UPDATE products
+      SET is_active = TRUE
+      WHERE id = $1
+        AND loja_id = $2
+      `,
+      [id, lojaId]
+    );
+
+    if (!updateRes.rowCount) {
+      return res.status(404).json({ error: 'Produto não encontrado' });
+    }
+
+    const productRes = await db.query(
+      `
+      SELECT *
+      FROM products
+      WHERE id = $1
+        AND loja_id = $2
+      `,
+      [id, lojaId]
+    );
+
+    return res.json(productRes.rows[0]);
+  } catch (err) {
+    console.error('Erro ao ativar produto:', err);
+    return res.status(500).json({ error: 'Erro interno ao ativar produto' });
+  }
+}
+
+// Compatibilidade retroativa: DELETE /products/:id agora representa desativação operacional.
+const disableProduct = deactivateProduct;
+
+async function hardDeleteProduct(req, res) {
+  try {
+    const lojaId = req.loja.id;
+    const { id } = req.params;
+
+    const deleteRes = await db.query(
+      `
+      DELETE FROM products
+      WHERE id = $1
+        AND loja_id = $2
+      `,
+      [id, lojaId]
+    );
+
+    if (!deleteRes.rowCount) {
+      return res.status(404).json({ error: 'Produto não encontrado' });
+    }
+
+    return res.status(204).send();
+  } catch (err) {
+    console.error('Erro ao excluir permanentemente produto:', err);
+    return res.status(500).json({ error: 'Erro interno ao excluir permanentemente produto' });
   }
 }
 
@@ -801,6 +876,9 @@ module.exports = {
   getProductById,
   updateProduct,
   disableProduct,
+  deactivateProduct,
+  activateProduct,
+  hardDeleteProduct,
 
   createProductOption,
   listProductOptions,

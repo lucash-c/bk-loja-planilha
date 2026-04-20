@@ -244,10 +244,13 @@ async function getPublicMenu(req, res, next) {
         c.slug AS category_meta_slug,
         c.image_url AS category_meta_image_url
       FROM products p
-      LEFT JOIN categories c ON c.id = p.category_id
+      LEFT JOIN categories c
+        ON c.id = p.category_id
+       AND c.loja_id = p.loja_id
       WHERE p.loja_id = $1
         AND p.is_active = TRUE
         AND p.is_visible = TRUE
+        AND (p.category_id IS NULL OR c.is_active = TRUE)
       ORDER BY p.created_at ASC
       `,
       [loja.id]
