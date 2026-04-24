@@ -2050,7 +2050,21 @@ async function getPublicOrderStatus(req, res, next) {
 
     const orderLookup = await db.query(
       `
-      SELECT *
+      SELECT
+        id,
+        external_id,
+        status,
+        payment_method,
+        payment_status,
+        order_type,
+        delivery_address,
+        delivery_fee,
+        delivery_distance_km,
+        delivery_estimated_time_minutes,
+        total,
+        notes,
+        created_at,
+        updated_at
       FROM orders
       WHERE id = $1
         AND loja_id = $2
@@ -2064,6 +2078,22 @@ async function getPublicOrderStatus(req, res, next) {
     }
 
     const order = orderLookup.rows[0];
+    const orderItemsLookup = await db.query(
+      `
+      SELECT
+        id,
+        product_name,
+        quantity,
+        unit_price,
+        total_price,
+        observation,
+        options_json
+      FROM order_items
+      WHERE order_id = $1
+      ORDER BY created_at ASC
+      `,
+      [order.id]
+    );
 
     let customerMessageCode = null;
     let customerMessage = null;
@@ -2096,16 +2126,30 @@ async function getPublicOrderStatus(req, res, next) {
       ok: true,
       order: {
         id: order.id,
-        status: order.status || null,
-        payment_method: order.payment_method || null,
-        payment_status: order.payment_status || null,
-        order_type: order.order_type || null,
-        delivery_address: order.delivery_address || null,
-        delivery_estimated_time_minutes: order.delivery_estimated_time_minutes || null,
-        created_at: order.created_at || null,
-        updated_at: order.updated_at || null,
+        external_id: order.external_id ?? null,
+        status: order.status ?? null,
+        payment_method: order.payment_method ?? null,
+        payment_status: order.payment_status ?? null,
+        order_type: order.order_type ?? null,
+        delivery_address: order.delivery_address ?? null,
+        delivery_fee: order.delivery_fee ?? null,
+        delivery_distance_km: order.delivery_distance_km ?? null,
+        delivery_estimated_time_minutes: order.delivery_estimated_time_minutes ?? null,
+        total: order.total ?? null,
+        notes: order.notes ?? null,
+        created_at: order.created_at ?? null,
+        updated_at: order.updated_at ?? null,
         customer_message_code: customerMessageCode,
-        customer_message: customerMessage
+        customer_message: customerMessage,
+        items: orderItemsLookup.rows.map(item => ({
+          id: item.id,
+          product_name: item.product_name || null,
+          quantity: item.quantity ?? null,
+          unit_price: item.unit_price ?? null,
+          total_price: item.total_price ?? null,
+          observation: item.observation || null,
+          options_json: item.options_json ?? null
+        }))
       }
     });
   } catch (err) {
