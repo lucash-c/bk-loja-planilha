@@ -280,35 +280,44 @@ async function isRealtimeEnabledForStore(lojaId) {
   }
 }
 
-let ordersUpdatedAtSupportCache = null;
+const tableColumnSupportCache = new Map();
 
-async function hasReliableOrdersUpdatedAtColumn() {
-  if (ordersUpdatedAtSupportCache !== null) {
-    return ordersUpdatedAtSupportCache;
+async function hasTableColumn(tableName, columnName) {
+  const cacheKey = `${tableName}.${columnName}`;
+  if (tableColumnSupportCache.has(cacheKey)) {
+    return tableColumnSupportCache.get(cacheKey);
   }
 
   try {
+    let hasColumn = false;
+
     if (db.supportsForUpdate) {
       const result = await db.query(
         `
         SELECT 1
         FROM information_schema.columns
-        WHERE table_name = 'orders'
-          AND column_name = 'updated_at'
+        WHERE table_name = $1
+          AND column_name = $2
         LIMIT 1
-        `
+        `,
+        [tableName, columnName]
       );
-      ordersUpdatedAtSupportCache = result.rows.length > 0;
-      return ordersUpdatedAtSupportCache;
+      hasColumn = result.rows.length > 0;
+    } else {
+      const result = await db.query(`PRAGMA table_info('${tableName}')`);
+      hasColumn = result.rows.some(column => column.name === columnName);
     }
 
-    const result = await db.query(`PRAGMA table_info('orders')`);
-    ordersUpdatedAtSupportCache = result.rows.some(column => column.name === 'updated_at');
-    return ordersUpdatedAtSupportCache;
+    tableColumnSupportCache.set(cacheKey, hasColumn);
+    return hasColumn;
   } catch (err) {
-    ordersUpdatedAtSupportCache = false;
+    tableColumnSupportCache.set(cacheKey, false);
     return false;
   }
+}
+
+async function hasReliableOrdersUpdatedAtColumn() {
+  return hasTableColumn('orders', 'updated_at');
 }
 
 function serializeOrderItemOptions(item) {
@@ -2047,6 +2056,7 @@ async function getPublicOrderStatus(req, res, next) {
   try {
     const lojaId = req.loja.id;
     const orderId = req.params.id;
+    const hasOrdersUpdatedAt = await hasReliableOrdersUpdatedAtColumn();
 
     const orderLookup = await db.query(
       `
@@ -2063,8 +2073,8 @@ async function getPublicOrderStatus(req, res, next) {
         delivery_estimated_time_minutes,
         total,
         notes,
-        created_at,
-        updated_at
+        created_at
+        ${hasOrdersUpdatedAt ? ', updated_at' : ''}
       FROM orders
       WHERE id = $1
         AND loja_id = $2
@@ -2078,6 +2088,12 @@ async function getPublicOrderStatus(req, res, next) {
     }
 
     const order = orderLookup.rows[0];
+    const hasOrderItemsCreatedAt = await hasTableColumn('order_items', 'created_at');
+    const hasOrderItemsId = await hasTableColumn('order_items', 'id');
+    const orderItemsOrderClause = hasOrderItemsCreatedAt
+      ? 'created_at ASC'
+      : (hasOrderItemsId ? 'id ASC' : 'product_name ASC');
+
     const orderItemsLookup = await db.query(
       `
       SELECT
@@ -2090,7 +2106,7 @@ async function getPublicOrderStatus(req, res, next) {
         options_json
       FROM order_items
       WHERE order_id = $1
-      ORDER BY created_at ASC
+      ORDER BY ${orderItemsOrderClause}
       `,
       [order.id]
     );
@@ -2138,7 +2154,7 @@ async function getPublicOrderStatus(req, res, next) {
         total: order.total ?? null,
         notes: order.notes ?? null,
         created_at: order.created_at ?? null,
-        updated_at: order.updated_at ?? null,
+        updated_at: order.updated_at ?? order.created_at ?? null,
         customer_message_code: customerMessageCode,
         customer_message: customerMessage,
         items: orderItemsLookup.rows.map(item => ({
