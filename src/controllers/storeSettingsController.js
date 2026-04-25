@@ -1,5 +1,23 @@
 const db = require('../config/db');
 
+function normalizeBoolean(value) {
+  if (value === true) return true;
+  if (value === false) return false;
+
+  if (typeof value === 'string') {
+    const v = value.trim().toLowerCase();
+
+    if (v === 'true' || v === '1' || v === 'sim') return true;
+    if (v === 'false' || v === '0' || v === 'nao' || v === 'não') return false;
+  }
+
+  if (typeof value === 'number') {
+    return value === 1;
+  }
+
+  return false;
+}
+
 function buildStoreOpeningChecklistMissingItems(checklistData) {
   const missing = [];
 
@@ -185,7 +203,7 @@ async function upsertSettings(req, res, next) {
     const { mercado_pago_access_token, pix_qr_image, open_time, close_time, is_open } = req.body;
     const normalizedMercadoPagoAccessToken =
       typeof mercado_pago_access_token === 'string' ? mercado_pago_access_token.trim() : null;
-    const normalizedIsOpen = is_open === undefined || is_open === null ? true : Boolean(is_open);
+    const normalizedIsOpen = normalizeBoolean(is_open);
 
     if (normalizedIsOpen) {
       const missing = await validateStoreOpeningChecklist({
