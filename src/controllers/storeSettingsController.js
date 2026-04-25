@@ -1,5 +1,133 @@
 const db = require('../config/db');
 
+function buildStoreOpeningChecklistMissingItems(checklistData) {
+  const missing = [];
+
+  if (!checklistData.openTime) {
+    missing.push({
+      field: 'open_time',
+      message: 'Configure o horário de abertura.'
+    });
+  }
+
+  if (!checklistData.closeTime) {
+    missing.push({
+      field: 'close_time',
+      message: 'Configure o horário de fechamento.'
+    });
+  }
+
+  if (!checklistData.hasCompleteAddress) {
+    missing.push({
+      field: 'address',
+      message: 'Complete o endereço da loja.'
+    });
+  }
+
+  if (!checklistData.hasActivePaymentMethod) {
+    missing.push({
+      field: 'payment_methods',
+      message: 'Cadastre pelo menos uma forma de pagamento ativa.'
+    });
+  }
+
+  if (!checklistData.hasSellableProduct) {
+    missing.push({
+      field: 'products',
+      message: 'Cadastre pelo menos um produto ativo e visível.'
+    });
+  }
+
+  if (checklistData.hasPixActivePaymentMethod && !checklistData.mercadoPagoAccessToken) {
+    missing.push({
+      field: 'mercado_pago_access_token',
+      message: 'Configure o Mercado Pago para aceitar PIX.'
+    });
+  }
+
+  return missing;
+}
+
+async function validateStoreOpeningChecklist({ lojaId, openTime, closeTime, mercadoPagoAccessToken }) {
+  const [
+    lojaRes,
+    activePaymentMethodsRes,
+    activePixPaymentMethodsRes,
+    sellableProductsRes
+  ] = await Promise.all([
+    db.query(
+      `
+      SELECT
+        cep,
+        rua,
+        numero,
+        bairro,
+        estado,
+        pais
+      FROM lojas
+      WHERE id = $1
+      LIMIT 1
+      `,
+      [lojaId]
+    ),
+    db.query(
+      `
+      SELECT 1
+      FROM store_payment_methods
+      WHERE loja_id = $1
+        AND is_active = TRUE
+      LIMIT 1
+      `,
+      [lojaId]
+    ),
+    db.query(
+      `
+      SELECT 1
+      FROM store_payment_methods
+      WHERE loja_id = $1
+        AND is_active = TRUE
+        AND code = 'pix'
+      LIMIT 1
+      `,
+      [lojaId]
+    ),
+    db.query(
+      `
+      SELECT 1
+      FROM products p
+      LEFT JOIN categories c
+        ON c.id = p.category_id
+       AND c.loja_id = p.loja_id
+      WHERE p.loja_id = $1
+        AND p.is_active = TRUE
+        AND p.is_visible = TRUE
+        AND (p.category_id IS NULL OR c.is_active = TRUE)
+      LIMIT 1
+      `,
+      [lojaId]
+    )
+  ]);
+
+  const loja = lojaRes.rows[0] || {};
+  const hasCompleteAddress =
+    Boolean(loja.cep?.trim()) &&
+    Boolean(loja.rua?.trim()) &&
+    Boolean(loja.numero?.trim()) &&
+    Boolean(loja.bairro?.trim()) &&
+    Boolean(loja.estado?.trim()) &&
+    Boolean(loja.pais?.trim());
+
+  return buildStoreOpeningChecklistMissingItems({
+    openTime: typeof openTime === 'string' ? openTime.trim() : openTime,
+    closeTime: typeof closeTime === 'string' ? closeTime.trim() : closeTime,
+    mercadoPagoAccessToken,
+    hasCompleteAddress,
+    hasActivePaymentMethod: activePaymentMethodsRes.rows.length > 0,
+    hasPixActivePaymentMethod: activePixPaymentMethodsRes.rows.length > 0,
+    hasSellableProduct: sellableProductsRes.rows.length > 0
+  });
+}
+
 /**
  * GET SETTINGS
  * Retorna configurações da loja ativa
@@ -58,6 +186,23 @@ async function upsertSettings(req, res, next) {
     const normalizedMercadoPagoAccessToken =
       typeof mercado_pago_access_token === 'string' ? mercado_pago_access_token.trim() : null;
     const normalizedIsOpen = is_open === undefined || is_open === null ? true : Boolean(is_open);
+
+    if (normalizedIsOpen) {
+      const missing = await validateStoreOpeningChecklist({
+        lojaId,
+        openTime: open_time,
+        closeTime: close_time,
+        mercadoPagoAccessToken: normalizedMercadoPagoAccessToken
+      });
+
+      if (missing.length > 0) {
+        return res.status(400).json({
+          error: 'Cadastro incompleto para abrir a loja',
+          code: 'STORE_OPENING_CHECKLIST_FAILED',
+          missing
+        });
+      }
+    }
 
     const result = await db.query(
       `
