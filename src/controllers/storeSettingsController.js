@@ -290,9 +290,12 @@ async function upsertSettings(req, res, next) {
     const { mercado_pago_access_token, pix_qr_image, open_time, close_time, is_open, delivery_enabled, pickup_enabled, dine_in_enabled } = req.body;
     const normalizedMercadoPagoAccessToken =
       typeof mercado_pago_access_token === 'string' ? mercado_pago_access_token.trim() : null;
-    const normalizedIsOpen = normalizeBoolean(is_open);
     const existingRes = await db.query('SELECT * FROM store_settings WHERE loja_id = $1 LIMIT 1', [lojaId]);
     const existing = existingRes.rows[0] || {};
+    const nextIsOpen =
+      typeof is_open === 'undefined'
+        ? Boolean(existing.is_open ?? true)
+        : normalizeBoolean(is_open);
     const nextDeliveryEnabled = typeof delivery_enabled === 'undefined' ? Boolean(existing.delivery_enabled ?? true) : normalizeBoolean(delivery_enabled);
     const nextPickupEnabled = typeof pickup_enabled === 'undefined' ? Boolean(existing.pickup_enabled ?? true) : normalizeBoolean(pickup_enabled);
     const nextDineInEnabled = typeof dine_in_enabled === 'undefined' ? Boolean(existing.dine_in_enabled ?? true) : normalizeBoolean(dine_in_enabled);
@@ -310,7 +313,7 @@ async function upsertSettings(req, res, next) {
       });
     }
 
-    if (normalizedIsOpen) {
+    if (nextIsOpen) {
       const missing = await validateStoreOpeningChecklist({
         lojaId,
         openTime: open_time,
@@ -360,7 +363,7 @@ async function upsertSettings(req, res, next) {
         pix_qr_image || null,
         open_time || null,
         close_time || null,
-        db.supportsForUpdate ? normalizedIsOpen : (normalizedIsOpen ? 1 : 0),
+        db.supportsForUpdate ? nextIsOpen : (nextIsOpen ? 1 : 0),
         db.supportsForUpdate ? nextDeliveryEnabled : (nextDeliveryEnabled ? 1 : 0),
         db.supportsForUpdate ? nextPickupEnabled : (nextPickupEnabled ? 1 : 0),
         db.supportsForUpdate ? nextDineInEnabled : (nextDineInEnabled ? 1 : 0)

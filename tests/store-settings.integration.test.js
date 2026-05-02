@@ -91,6 +91,70 @@ async function run() {
   assert.strictEqual(storedA.rows.length, 1);
   assert.strictEqual(storedA.rows[0].mercado_pago_access_token, 'APP_USR-token-loja-a');
 
+  const keepOpenWithoutIsOpen = await invoke(storeSettingsController.upsertSettings, {
+    loja: { id: 'loja-a' },
+    userLoja: { role: 'owner' },
+    body: {
+      mercado_pago_access_token: 'APP_USR-token-loja-a',
+      open_time: '08:00',
+      close_time: '22:00',
+      delivery_enabled: true,
+      pickup_enabled: true,
+      dine_in_enabled: true
+    }
+  });
+  assert.strictEqual(keepOpenWithoutIsOpen.statusCode, 200);
+  const lojaAAfterMissingIsOpenOpen = await db.query('SELECT is_open FROM store_settings WHERE loja_id = $1', ['loja-a']);
+  assert.strictEqual(lojaAAfterMissingIsOpenOpen.rows[0].is_open, 1);
+
+  const explicitClose = await invoke(storeSettingsController.upsertSettings, {
+    loja: { id: 'loja-a' },
+    userLoja: { role: 'owner' },
+    body: {
+      mercado_pago_access_token: 'APP_USR-token-loja-a',
+      is_open: false,
+      delivery_enabled: true,
+      pickup_enabled: true,
+      dine_in_enabled: true
+    }
+  });
+  assert.strictEqual(explicitClose.statusCode, 200);
+  const lojaAAfterExplicitClose = await db.query('SELECT is_open FROM store_settings WHERE loja_id = $1', ['loja-a']);
+  assert.strictEqual(lojaAAfterExplicitClose.rows[0].is_open, 0);
+
+  const keepClosedWithoutIsOpen = await invoke(storeSettingsController.upsertSettings, {
+    loja: { id: 'loja-a' },
+    userLoja: { role: 'owner' },
+    body: {
+      mercado_pago_access_token: 'APP_USR-token-loja-a',
+      open_time: '08:00',
+      close_time: '22:00',
+      delivery_enabled: true,
+      pickup_enabled: true,
+      dine_in_enabled: true
+    }
+  });
+  assert.strictEqual(keepClosedWithoutIsOpen.statusCode, 200);
+  const lojaAAfterMissingIsOpenClosed = await db.query('SELECT is_open FROM store_settings WHERE loja_id = $1', ['loja-a']);
+  assert.strictEqual(lojaAAfterMissingIsOpenClosed.rows[0].is_open, 0);
+
+  const explicitOpen = await invoke(storeSettingsController.upsertSettings, {
+    loja: { id: 'loja-a' },
+    userLoja: { role: 'owner' },
+    body: {
+      mercado_pago_access_token: 'APP_USR-token-loja-a',
+      open_time: '08:00',
+      close_time: '22:00',
+      is_open: true,
+      delivery_enabled: true,
+      pickup_enabled: true,
+      dine_in_enabled: true
+    }
+  });
+  assert.strictEqual(explicitOpen.statusCode, 200);
+  const lojaAAfterExplicitOpen = await db.query('SELECT is_open FROM store_settings WHERE loja_id = $1', ['loja-a']);
+  assert.strictEqual(lojaAAfterExplicitOpen.rows[0].is_open, 1);
+
   const ownerGetA = await invoke(storeSettingsController.getSettings, {
     loja: { id: 'loja-a' }
   });
@@ -119,21 +183,21 @@ async function run() {
   const deliveryWithoutFee = await invoke(storeSettingsController.upsertSettings, {
     loja: { id: 'loja-b' },
     userLoja: { role: 'owner' },
-    body: { delivery_enabled: true }
+    body: { is_open: false, delivery_enabled: true }
   });
   assert.strictEqual(deliveryWithoutFee.statusCode, 400);
 
   const pickupWithoutAddress = await invoke(storeSettingsController.upsertSettings, {
     loja: { id: 'loja-b' },
     userLoja: { role: 'owner' },
-    body: { delivery_enabled: false, pickup_enabled: true, dine_in_enabled: false }
+    body: { is_open: false, delivery_enabled: false, pickup_enabled: true, dine_in_enabled: false }
   });
   assert.strictEqual(pickupWithoutAddress.statusCode, 400);
 
   const dineInWithoutAddress = await invoke(storeSettingsController.upsertSettings, {
     loja: { id: 'loja-b' },
     userLoja: { role: 'owner' },
-    body: { delivery_enabled: false, pickup_enabled: false, dine_in_enabled: true }
+    body: { is_open: false, delivery_enabled: false, pickup_enabled: false, dine_in_enabled: true }
   });
   assert.strictEqual(dineInWithoutAddress.statusCode, 400);
   await db.query('UPDATE lojas SET cep = $1, rua = $2, numero = $3, bairro = $4, estado = $5, pais = $6 WHERE id = $7', ['02000-000', 'Rua B', '20', 'Centro', 'SP', 'Brasil', 'loja-b']);
@@ -141,7 +205,7 @@ async function run() {
   const ownerPutB = await invoke(storeSettingsController.upsertSettings, {
     loja: { id: 'loja-b' },
     userLoja: { role: 'owner' },
-    body: { delivery_enabled: false, pickup_enabled: true, dine_in_enabled: false }
+    body: { is_open: false, delivery_enabled: false, pickup_enabled: true, dine_in_enabled: false }
   });
   assert.strictEqual(ownerPutB.statusCode, 200);
 
