@@ -58,10 +58,14 @@ CREATE TABLE IF NOT EXISTS store_settings (
     open_time TEXT,
     close_time TEXT,
     is_open INTEGER DEFAULT 1,
+    last_pdv_heartbeat_at TEXT,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (loja_id) REFERENCES lojas(id) ON DELETE CASCADE
 );
+
+CREATE INDEX IF NOT EXISTS idx_store_settings_open_heartbeat
+    ON store_settings(is_open, last_pdv_heartbeat_at);
 
 -- ==========================================
 -- STORE_PAYMENT_METHODS (FORMAS DE PAGAMENTO)

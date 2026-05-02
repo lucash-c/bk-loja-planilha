@@ -262,7 +262,33 @@ async function upsertSettings(req, res, next) {
   }
 }
 
+async function heartbeat(req, res, next) {
+  try {
+    const lojaId = req.loja.id;
+
+    await db.query(
+      `
+      INSERT INTO store_settings (
+        loja_id,
+        last_pdv_heartbeat_at
+      )
+      VALUES ($1, CURRENT_TIMESTAMP)
+      ON CONFLICT (loja_id)
+      DO UPDATE SET
+        last_pdv_heartbeat_at = CURRENT_TIMESTAMP,
+        updated_at = CURRENT_TIMESTAMP
+      `,
+      [lojaId]
+    );
+
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   getSettings,
-  upsertSettings
+  upsertSettings,
+  heartbeat
 };
