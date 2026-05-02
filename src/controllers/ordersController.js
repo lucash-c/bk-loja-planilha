@@ -156,6 +156,25 @@ async function isStoreOpenForCheckout({ lojaId, tx = db }) {
   return Boolean(settingsRes.rows[0].is_open);
 }
 
+async function getStoreServiceModes({ lojaId, tx = db }) {
+  const settingsRes = await tx.query(
+    `
+    SELECT
+      COALESCE(delivery_enabled, TRUE) AS delivery_enabled,
+      COALESCE(pickup_enabled, TRUE) AS pickup_enabled,
+      COALESCE(dine_in_enabled, TRUE) AS dine_in_enabled
+    FROM store_settings
+    WHERE loja_id = $1
+    LIMIT 1
+    `,
+    [lojaId]
+  );
+  if (!settingsRes.rows.length) {
+    return { delivery_enabled: true, pickup_enabled: true, dine_in_enabled: true };
+  }
+  return settingsRes.rows[0];
+}
+
 async function handleIdempotency({ req, res, storeId, scope, orderId, execute, onCompleted }) {
   const idempotencyKey = getIdempotencyKey(req);
 
@@ -542,6 +561,17 @@ async function createOrder(req, res, next) {
 
     if (order_type && !['entrega', 'retirada', 'local'].includes(order_type)) {
       return res.status(400).json({ error: 'Tipo de pedido inválido' });
+    }
+    const resolvedOrderType = order_type || 'entrega';
+    const serviceModes = await getStoreServiceModes({ lojaId });
+    if (resolvedOrderType === 'entrega' && !serviceModes.delivery_enabled) {
+      return res.status(400).json({ error: 'Entrega indisponível para esta loja.' });
+    }
+    if (resolvedOrderType === 'retirada' && !serviceModes.pickup_enabled) {
+      return res.status(400).json({ error: 'Retirada indisponível para esta loja.' });
+    }
+    if (resolvedOrderType === 'local' && !serviceModes.dine_in_enabled) {
+      return res.status(400).json({ error: 'Comer no local indisponível para esta loja.' });
     }
 
     if (typeof total !== 'undefined' && normalizeMoney(total) === null) {

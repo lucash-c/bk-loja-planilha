@@ -73,6 +73,9 @@ CREATE TABLE IF NOT EXISTS store_settings (
     close_time VARCHAR(10),
     orders_realtime_enabled BOOLEAN DEFAULT FALSE,
     is_open BOOLEAN DEFAULT TRUE,
+    delivery_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    pickup_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    dine_in_enabled BOOLEAN NOT NULL DEFAULT TRUE,
     last_pdv_heartbeat_at TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
@@ -86,6 +89,15 @@ ALTER TABLE store_settings
 
 ALTER TABLE store_settings
     ADD COLUMN IF NOT EXISTS mercado_pago_access_token TEXT;
+
+ALTER TABLE store_settings
+    ADD COLUMN IF NOT EXISTS delivery_enabled BOOLEAN NOT NULL DEFAULT TRUE;
+
+ALTER TABLE store_settings
+    ADD COLUMN IF NOT EXISTS pickup_enabled BOOLEAN NOT NULL DEFAULT TRUE;
+
+ALTER TABLE store_settings
+    ADD COLUMN IF NOT EXISTS dine_in_enabled BOOLEAN NOT NULL DEFAULT TRUE;
 
 -- ==========================================
 -- STORE_DELIVERY_FEES (FRETE POR DISTÂNCIA)

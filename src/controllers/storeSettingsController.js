@@ -41,6 +41,32 @@ function buildStoreOpeningChecklistMissingItems(checklistData) {
       message: 'Complete o endereço da loja.'
     });
   }
+  if (!checklistData.hasAtLeastOneServiceModeEnabled) {
+    missing.push({
+      field: 'service_modes',
+      message: 'Mantenha pelo menos uma forma de atendimento ativa.'
+    });
+  }
+  if (checklistData.deliveryEnabled && !checklistData.hasDeliveryFeeRange) {
+    missing.push({
+      field: 'delivery_enabled',
+      message: 'Cadastre pelo menos uma faixa de entrega antes de ativar Entrega.'
+    });
+  }
+  if ((checklistData.pickupEnabled || checklistData.dineInEnabled) && !checklistData.hasCompleteAddress) {
+    if (checklistData.pickupEnabled) {
+      missing.push({
+        field: 'pickup_enabled',
+        message: 'Complete o endereço da loja antes de ativar Retirada.'
+      });
+    }
+    if (checklistData.dineInEnabled) {
+      missing.push({
+        field: 'dine_in_enabled',
+        message: 'Complete o endereço da loja antes de ativar Comer no local.'
+      });
+    }
+  }
 
   if (!checklistData.hasActivePaymentMethod) {
     missing.push({
@@ -71,7 +97,9 @@ async function validateStoreOpeningChecklist({ lojaId, openTime, closeTime, merc
     lojaRes,
     activePaymentMethodsRes,
     activePixPaymentMethodsRes,
-    sellableProductsRes
+    sellableProductsRes,
+    deliveryFeesRes,
+    storeSettingsRes
   ] = await Promise.all([
     db.query(
       `
@@ -123,8 +151,33 @@ async function validateStoreOpeningChecklist({ lojaId, openTime, closeTime, merc
       LIMIT 1
       `,
       [lojaId]
+    ),
+    db.query(
+      `
+      SELECT 1
+      FROM store_delivery_fees
+      WHERE loja_id = $1
+      LIMIT 1
+      `,
+      [lojaId]
+    ),
+    db.query(
+      `
+      SELECT
+        COALESCE(delivery_enabled, TRUE) AS delivery_enabled,
+        COALESCE(pickup_enabled, TRUE) AS pickup_enabled,
+        COALESCE(dine_in_enabled, TRUE) AS dine_in_enabled
+      FROM store_settings
+      WHERE loja_id = $1
+      LIMIT 1
+      `,
+      [lojaId]
     )
   ]);
+  const storeSettings = storeSettingsRes.rows[0] || {};
+  const deliveryEnabled = Boolean(storeSettings.delivery_enabled ?? true);
+  const pickupEnabled = Boolean(storeSettings.pickup_enabled ?? true);
+  const dineInEnabled = Boolean(storeSettings.dine_in_enabled ?? true);
 
   const loja = lojaRes.rows[0] || {};
   const hasCompleteAddress =
@@ -143,7 +196,35 @@ async function validateStoreOpeningChecklist({ lojaId, openTime, closeTime, merc
     hasActivePaymentMethod: activePaymentMethodsRes.rows.length > 0,
     hasPixActivePaymentMethod: activePixPaymentMethodsRes.rows.length > 0,
     hasSellableProduct: sellableProductsRes.rows.length > 0
+    ,hasAtLeastOneServiceModeEnabled: deliveryEnabled || pickupEnabled || dineInEnabled,
+    hasDeliveryFeeRange: deliveryFeesRes.rows.length > 0,
+    deliveryEnabled,
+    pickupEnabled,
+    dineInEnabled
   });
+}
+
+async function validateStoreServiceModes({ lojaId, deliveryEnabled, pickupEnabled, dineInEnabled }) {
+  const missing = [];
+  if (!deliveryEnabled && !pickupEnabled && !dineInEnabled) {
+    missing.push({ field: 'service_modes', message: 'Mantenha pelo menos uma forma de atendimento ativa.' });
+  }
+  const [deliveryFeesRes, lojaRes] = await Promise.all([
+    deliveryEnabled
+      ? db.query('SELECT 1 FROM store_delivery_fees WHERE loja_id = $1 LIMIT 1', [lojaId])
+      : Promise.resolve({ rows: [] }),
+    (pickupEnabled || dineInEnabled)
+      ? db.query('SELECT cep, rua, numero, bairro, estado, pais FROM lojas WHERE id = $1 LIMIT 1', [lojaId])
+      : Promise.resolve({ rows: [] })
+  ]);
+  if (deliveryEnabled && !deliveryFeesRes.rows.length) {
+    missing.push({ field: 'delivery_enabled', message: 'Cadastre pelo menos uma faixa de entrega antes de ativar Entrega.' });
+  }
+  const loja = lojaRes.rows[0] || {};
+  const hasCompleteAddress = Boolean(loja.cep?.trim()) && Boolean(loja.rua?.trim()) && Boolean(loja.numero?.trim()) && Boolean(loja.bairro?.trim()) && Boolean(loja.estado?.trim()) && Boolean(loja.pais?.trim());
+  if (pickupEnabled && !hasCompleteAddress) missing.push({ field: 'pickup_enabled', message: 'Complete o endereço da loja antes de ativar Retirada.' });
+  if (dineInEnabled && !hasCompleteAddress) missing.push({ field: 'dine_in_enabled', message: 'Complete o endereço da loja antes de ativar Comer no local.' });
+  return missing;
 }
 
 /**
@@ -162,7 +243,10 @@ async function getSettings(req, res, next) {
         pix_qr_image,
         open_time,
         close_time,
-        is_open
+        is_open,
+        COALESCE(delivery_enabled, TRUE) AS delivery_enabled,
+        COALESCE(pickup_enabled, TRUE) AS pickup_enabled,
+        COALESCE(dine_in_enabled, TRUE) AS dine_in_enabled
       FROM store_settings
       WHERE loja_id = $1
       `,
@@ -176,7 +260,10 @@ async function getSettings(req, res, next) {
         pix_qr_image: null,
         open_time: null,
         close_time: null,
-        is_open: true
+        is_open: true,
+        delivery_enabled: true,
+        pickup_enabled: true,
+        dine_in_enabled: true
       });
     }
 
@@ -200,10 +287,28 @@ async function upsertSettings(req, res, next) {
         .status(403)
         .json({ error: 'Apenas o owner pode alterar as configurações' });
     }
-    const { mercado_pago_access_token, pix_qr_image, open_time, close_time, is_open } = req.body;
+    const { mercado_pago_access_token, pix_qr_image, open_time, close_time, is_open, delivery_enabled, pickup_enabled, dine_in_enabled } = req.body;
     const normalizedMercadoPagoAccessToken =
       typeof mercado_pago_access_token === 'string' ? mercado_pago_access_token.trim() : null;
     const normalizedIsOpen = normalizeBoolean(is_open);
+    const existingRes = await db.query('SELECT * FROM store_settings WHERE loja_id = $1 LIMIT 1', [lojaId]);
+    const existing = existingRes.rows[0] || {};
+    const nextDeliveryEnabled = typeof delivery_enabled === 'undefined' ? Boolean(existing.delivery_enabled ?? true) : normalizeBoolean(delivery_enabled);
+    const nextPickupEnabled = typeof pickup_enabled === 'undefined' ? Boolean(existing.pickup_enabled ?? true) : normalizeBoolean(pickup_enabled);
+    const nextDineInEnabled = typeof dine_in_enabled === 'undefined' ? Boolean(existing.dine_in_enabled ?? true) : normalizeBoolean(dine_in_enabled);
+    const serviceModeMissing = await validateStoreServiceModes({
+      lojaId,
+      deliveryEnabled: nextDeliveryEnabled,
+      pickupEnabled: nextPickupEnabled,
+      dineInEnabled: nextDineInEnabled
+    });
+    if (serviceModeMissing.length > 0) {
+      return res.status(400).json({
+        error: 'Configuração inválida para tipos de atendimento',
+        code: 'STORE_SERVICE_MODES_VALIDATION_FAILED',
+        missing: serviceModeMissing
+      });
+    }
 
     if (normalizedIsOpen) {
       const missing = await validateStoreOpeningChecklist({
@@ -231,8 +336,11 @@ async function upsertSettings(req, res, next) {
         open_time,
         close_time,
         is_open
+        ,delivery_enabled
+        ,pickup_enabled
+        ,dine_in_enabled
       )
-      VALUES ($1,$2,$3,$4,$5,$6)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
       ON CONFLICT (loja_id)
       DO UPDATE SET
         mercado_pago_access_token = EXCLUDED.mercado_pago_access_token,
@@ -240,6 +348,9 @@ async function upsertSettings(req, res, next) {
         open_time    = EXCLUDED.open_time,
         close_time   = EXCLUDED.close_time,
         is_open      = EXCLUDED.is_open,
+        delivery_enabled = EXCLUDED.delivery_enabled,
+        pickup_enabled = EXCLUDED.pickup_enabled,
+        dine_in_enabled = EXCLUDED.dine_in_enabled,
         updated_at   = CURRENT_TIMESTAMP
       RETURNING *
       `,
@@ -249,7 +360,10 @@ async function upsertSettings(req, res, next) {
         pix_qr_image || null,
         open_time || null,
         close_time || null,
-        db.supportsForUpdate ? normalizedIsOpen : (normalizedIsOpen ? 1 : 0)
+        db.supportsForUpdate ? normalizedIsOpen : (normalizedIsOpen ? 1 : 0),
+        db.supportsForUpdate ? nextDeliveryEnabled : (nextDeliveryEnabled ? 1 : 0),
+        db.supportsForUpdate ? nextPickupEnabled : (nextPickupEnabled ? 1 : 0),
+        db.supportsForUpdate ? nextDineInEnabled : (nextDineInEnabled ? 1 : 0)
       ]
     );
 

@@ -219,7 +219,10 @@ async function getPublicMenu(req, res, next) {
         l.bairro,
         l.estado,
         l.pais,
-        COALESCE(ss.is_open, TRUE) AS is_open
+        COALESCE(ss.is_open, TRUE) AS is_open,
+        COALESCE(ss.delivery_enabled, TRUE) AS delivery_enabled,
+        COALESCE(ss.pickup_enabled, TRUE) AS pickup_enabled,
+        COALESCE(ss.dine_in_enabled, TRUE) AS dine_in_enabled
       FROM lojas l
       LEFT JOIN store_settings ss ON ss.loja_id = l.id
       WHERE l.public_key = $1

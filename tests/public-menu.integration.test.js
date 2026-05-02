@@ -39,7 +39,7 @@ async function invoke(handler, req) {
 
 async function setupSchema() {
   await db.query('CREATE TABLE lojas (id TEXT PRIMARY KEY, public_key TEXT UNIQUE, name TEXT, whatsapp TEXT, logo TEXT, facebook TEXT, instagram TEXT, tiktok TEXT, cep TEXT, rua TEXT, numero TEXT, bairro TEXT, estado TEXT, pais TEXT, is_active INTEGER)');
-  await db.query('CREATE TABLE store_settings (loja_id TEXT UNIQUE, mercado_pago_access_token TEXT, is_open INTEGER)');
+  await db.query('CREATE TABLE store_settings (loja_id TEXT UNIQUE, mercado_pago_access_token TEXT, is_open INTEGER, delivery_enabled INTEGER DEFAULT 1, pickup_enabled INTEGER DEFAULT 1, dine_in_enabled INTEGER DEFAULT 1)');
   await db.query('CREATE TABLE categories (id TEXT PRIMARY KEY, loja_id TEXT, name TEXT, slug TEXT, image_url TEXT, is_active INTEGER)');
   await db.query('CREATE TABLE products (id TEXT PRIMARY KEY, loja_id TEXT, category_id TEXT, name TEXT, is_active INTEGER, is_visible INTEGER, created_at TEXT)');
   await db.query('CREATE TABLE product_options (id TEXT PRIMARY KEY, product_id TEXT, name TEXT, type TEXT, required INTEGER, min_choices INTEGER, max_choices INTEGER, is_visible INTEGER, created_at TEXT)');
@@ -53,7 +53,7 @@ async function setupSchema() {
 
 async function seedBase() {
   await db.query('INSERT INTO lojas (id, public_key, name, is_active) VALUES ($1,$2,$3,$4)', ['loja-1', 'public-loja', 'Loja Pública', 1]);
-  await db.query('INSERT INTO store_settings (loja_id, mercado_pago_access_token, is_open) VALUES ($1,$2,$3)', ['loja-1', 'APP_USR-token-privado', 0]);
+  await db.query('INSERT INTO store_settings (loja_id, mercado_pago_access_token, is_open, delivery_enabled, pickup_enabled, dine_in_enabled) VALUES ($1,$2,$3,$4,$5,$6)', ['loja-1', 'APP_USR-token-privado', 0, 0, 1, 0]);
   await db.query('INSERT INTO categories (id, loja_id, name, slug, image_url, is_active) VALUES ($1,$2,$3,$4,$5,$6)', ['cat-active', 'loja-1', 'Categoria Ativa', 'cat-ativa', null, 1]);
   await db.query('INSERT INTO categories (id, loja_id, name, slug, image_url, is_active) VALUES ($1,$2,$3,$4,$5,$6)', ['cat-inactive', 'loja-1', 'Categoria Inativa', 'cat-inativa', null, 0]);
   await db.query('INSERT INTO products (id, loja_id, category_id, name, is_active, is_visible, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7)', ['p-legacy', 'loja-1', null, 'Produto Legado', 1, 1, '2024-01-01T10:00:00Z']);
@@ -114,6 +114,9 @@ async function run() {
   assert.strictEqual(response.statusCode, 200);
   assert.ok(Array.isArray(response.body.products));
   assert.strictEqual(response.body.loja.is_open, 0);
+  assert.strictEqual(response.body.loja.delivery_enabled, 0);
+  assert.strictEqual(response.body.loja.pickup_enabled, 1);
+  assert.strictEqual(response.body.loja.dine_in_enabled, 0);
   assert.ok(!response.body.products.find(product => product.id === 'p-inactive-cat'));
   assert.ok(!Object.prototype.hasOwnProperty.call(response.body.loja, 'mercado_pago_access_token'));
   assert.ok(!JSON.stringify(response.body).includes('APP_USR-token-privado'));
