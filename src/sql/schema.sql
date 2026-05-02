@@ -73,9 +73,13 @@ CREATE TABLE IF NOT EXISTS store_settings (
     close_time VARCHAR(10),
     orders_realtime_enabled BOOLEAN DEFAULT FALSE,
     is_open BOOLEAN DEFAULT TRUE,
+    last_pdv_heartbeat_at TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
+
+CREATE INDEX IF NOT EXISTS idx_store_settings_open_heartbeat
+    ON store_settings(is_open, last_pdv_heartbeat_at);
 
 ALTER TABLE store_settings
     ADD COLUMN IF NOT EXISTS orders_realtime_enabled BOOLEAN DEFAULT FALSE;

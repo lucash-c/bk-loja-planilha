@@ -16,6 +16,7 @@ const optionGroupsRoutes = require('./routes/optionGroups');
 const deliveryFeesRoutes = require('./routes/deliveryFees');
 const storePaymentMethodsRoutes = require('./routes/storePaymentMethods');
 const pdvPushSubscriptionsRoutes = require('./routes/pdvPushSubscriptions');
+const { startInactiveStoreScheduler } = require('./services/storeHeartbeatService');
 const { errorHandler } = require('./middleware/errorHandler');
 const {
   getActiveRelease,
@@ -152,6 +153,7 @@ function createApp() {
 
 if (require.main === module) {
   const app = createApp();
+  startInactiveStoreScheduler();
   const port = process.env.PORT || 4000;
   app.listen(port, () => {
     const activeRelease = getActiveRelease();
