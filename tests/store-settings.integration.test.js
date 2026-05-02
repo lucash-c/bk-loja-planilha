@@ -48,13 +48,27 @@ async function setupSchema() {
       open_time TEXT,
       close_time TEXT,
       is_open INTEGER,
+      delivery_enabled INTEGER DEFAULT 1,
+      pickup_enabled INTEGER DEFAULT 1,
+      dine_in_enabled INTEGER DEFAULT 1,
       updated_at TEXT
     )
   `);
+  await db.query('CREATE TABLE store_delivery_fees (loja_id TEXT, distance_km NUMERIC, fee NUMERIC, estimated_time_minutes INTEGER)');
+  await db.query('CREATE TABLE lojas (id TEXT PRIMARY KEY, cep TEXT, rua TEXT, numero TEXT, bairro TEXT, estado TEXT, pais TEXT)');
+  await db.query('CREATE TABLE store_payment_methods (id TEXT PRIMARY KEY, loja_id TEXT, code TEXT, is_active INTEGER)');
+  await db.query('CREATE TABLE categories (id TEXT PRIMARY KEY, loja_id TEXT, is_active INTEGER)');
+  await db.query('CREATE TABLE products (id TEXT PRIMARY KEY, loja_id TEXT, category_id TEXT, is_active INTEGER, is_visible INTEGER)');
 }
 
 async function run() {
   await setupSchema();
+  await db.query('INSERT INTO lojas (id, cep, rua, numero, bairro, estado, pais) VALUES ($1,$2,$3,$4,$5,$6,$7)', ['loja-a', '01000-000', 'Rua A', '10', 'Centro', 'SP', 'Brasil']);
+  await db.query('INSERT INTO lojas (id) VALUES ($1)', ['loja-b']);
+  await db.query('INSERT INTO store_delivery_fees (loja_id, distance_km, fee) VALUES ($1,$2,$3)', ['loja-a', 5, 9.9]);
+  await db.query('INSERT INTO store_payment_methods (id, loja_id, code, is_active) VALUES ($1,$2,$3,$4)', ['pm-1', 'loja-a', 'dinheiro', 1]);
+  await db.query('INSERT INTO categories (id, loja_id, is_active) VALUES ($1,$2,$3)', ['cat-1', 'loja-a', 1]);
+  await db.query('INSERT INTO products (id, loja_id, category_id, is_active, is_visible) VALUES ($1,$2,$3,$4,$5)', ['prod-1', 'loja-a', 'cat-1', 1, 1]);
 
   const ownerPut = await invoke(storeSettingsController.upsertSettings, {
     loja: { id: 'loja-a' },
@@ -64,7 +78,10 @@ async function run() {
       pix_qr_image: 'qr-base64',
       open_time: '08:00',
       close_time: '22:00',
-      is_open: true
+      is_open: true,
+      delivery_enabled: true,
+      pickup_enabled: true,
+      dine_in_enabled: true
     }
   });
 
@@ -81,14 +98,50 @@ async function run() {
   assert.strictEqual(ownerGetA.statusCode, 200);
   assert.strictEqual(ownerGetA.body.mercado_pago_access_token, 'APP_USR-token-loja-a');
   assert.strictEqual(ownerGetA.body.pix_key, null);
+  assert.strictEqual(ownerGetA.body.delivery_enabled, 1);
+  assert.strictEqual(ownerGetA.body.pickup_enabled, 1);
+  assert.strictEqual(ownerGetA.body.dine_in_enabled, 1);
 
-  const ownerPutB = await invoke(storeSettingsController.upsertSettings, {
+  const ownerPutBFailed = await invoke(storeSettingsController.upsertSettings, {
     loja: { id: 'loja-b' },
     userLoja: { role: 'owner' },
     body: {
       mercado_pago_access_token: 'APP_USR-token-loja-b',
-      is_open: false
+      is_open: false,
+      delivery_enabled: false,
+      pickup_enabled: false,
+      dine_in_enabled: false
     }
+  });
+  assert.strictEqual(ownerPutBFailed.statusCode, 400);
+  assert.strictEqual(ownerPutBFailed.body.code, 'STORE_SERVICE_MODES_VALIDATION_FAILED');
+
+  const deliveryWithoutFee = await invoke(storeSettingsController.upsertSettings, {
+    loja: { id: 'loja-b' },
+    userLoja: { role: 'owner' },
+    body: { delivery_enabled: true }
+  });
+  assert.strictEqual(deliveryWithoutFee.statusCode, 400);
+
+  const pickupWithoutAddress = await invoke(storeSettingsController.upsertSettings, {
+    loja: { id: 'loja-b' },
+    userLoja: { role: 'owner' },
+    body: { delivery_enabled: false, pickup_enabled: true, dine_in_enabled: false }
+  });
+  assert.strictEqual(pickupWithoutAddress.statusCode, 400);
+
+  const dineInWithoutAddress = await invoke(storeSettingsController.upsertSettings, {
+    loja: { id: 'loja-b' },
+    userLoja: { role: 'owner' },
+    body: { delivery_enabled: false, pickup_enabled: false, dine_in_enabled: true }
+  });
+  assert.strictEqual(dineInWithoutAddress.statusCode, 400);
+  await db.query('UPDATE lojas SET cep = $1, rua = $2, numero = $3, bairro = $4, estado = $5, pais = $6 WHERE id = $7', ['02000-000', 'Rua B', '20', 'Centro', 'SP', 'Brasil', 'loja-b']);
+
+  const ownerPutB = await invoke(storeSettingsController.upsertSettings, {
+    loja: { id: 'loja-b' },
+    userLoja: { role: 'owner' },
+    body: { delivery_enabled: false, pickup_enabled: true, dine_in_enabled: false }
   });
   assert.strictEqual(ownerPutB.statusCode, 200);
 
@@ -96,7 +149,10 @@ async function run() {
     loja: { id: 'loja-b' }
   });
 
-  assert.strictEqual(ownerGetB.body.mercado_pago_access_token, 'APP_USR-token-loja-b');
+  assert.strictEqual(ownerGetB.body.mercado_pago_access_token, null);
+  assert.strictEqual(ownerGetB.body.delivery_enabled, 0);
+  assert.strictEqual(ownerGetB.body.pickup_enabled, 1);
+  assert.strictEqual(ownerGetB.body.dine_in_enabled, 0);
   assert.notStrictEqual(ownerGetA.body.mercado_pago_access_token, ownerGetB.body.mercado_pago_access_token);
 
   const forbidden = await invoke(storeSettingsController.upsertSettings, {
