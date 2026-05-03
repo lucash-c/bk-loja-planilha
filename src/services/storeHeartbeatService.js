@@ -1,6 +1,6 @@
 const db = require('../config/db');
 
-const HEARTBEAT_TIMEOUT_MINUTES = 5;
+const HEARTBEAT_TIMEOUT_MINUTES = Number(process.env.STORE_HEARTBEAT_TIMEOUT_MINUTES || 15);
 
 function getInactiveConditionSql() {
   if (db.supportsForUpdate) {
