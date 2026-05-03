@@ -4,10 +4,10 @@ const HEARTBEAT_TIMEOUT_MINUTES = Number(process.env.STORE_HEARTBEAT_TIMEOUT_MIN
 
 function getInactiveConditionSql() {
   if (db.supportsForUpdate) {
-    return `last_pdv_heartbeat_at IS NULL OR last_pdv_heartbeat_at < NOW() - INTERVAL '${HEARTBEAT_TIMEOUT_MINUTES} minutes'`;
+    return `COALESCE(last_pdv_heartbeat_at, updated_at) < NOW() - INTERVAL '${HEARTBEAT_TIMEOUT_MINUTES} minutes'`;
   }
 
-  return `last_pdv_heartbeat_at IS NULL OR datetime(last_pdv_heartbeat_at) < datetime('now', '-${HEARTBEAT_TIMEOUT_MINUTES} minutes')`;
+  return `datetime(COALESCE(last_pdv_heartbeat_at, updated_at)) < datetime('now', '-${HEARTBEAT_TIMEOUT_MINUTES} minutes')`;
 }
 
 async function closeInactiveStores() {

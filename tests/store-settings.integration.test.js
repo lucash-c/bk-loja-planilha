@@ -48,6 +48,7 @@ async function setupSchema() {
       open_time TEXT,
       close_time TEXT,
       is_open INTEGER,
+      last_pdv_heartbeat_at TEXT,
       delivery_enabled INTEGER DEFAULT 1,
       pickup_enabled INTEGER DEFAULT 1,
       dine_in_enabled INTEGER DEFAULT 1,
@@ -90,6 +91,8 @@ async function run() {
   const storedA = await db.query('SELECT * FROM store_settings WHERE loja_id = $1', ['loja-a']);
   assert.strictEqual(storedA.rows.length, 1);
   assert.strictEqual(storedA.rows[0].mercado_pago_access_token, 'APP_USR-token-loja-a');
+  assert.strictEqual(storedA.rows[0].is_open, 1);
+  assert.ok(storedA.rows[0].last_pdv_heartbeat_at);
 
   const keepOpenWithoutIsOpen = await invoke(storeSettingsController.upsertSettings, {
     loja: { id: 'loja-a' },
@@ -119,8 +122,9 @@ async function run() {
     }
   });
   assert.strictEqual(explicitClose.statusCode, 200);
-  const lojaAAfterExplicitClose = await db.query('SELECT is_open FROM store_settings WHERE loja_id = $1', ['loja-a']);
+  const lojaAAfterExplicitClose = await db.query('SELECT is_open, last_pdv_heartbeat_at FROM store_settings WHERE loja_id = $1', ['loja-a']);
   assert.strictEqual(lojaAAfterExplicitClose.rows[0].is_open, 0);
+  assert.ok(lojaAAfterExplicitClose.rows[0].last_pdv_heartbeat_at);
 
   const keepClosedWithoutIsOpen = await invoke(storeSettingsController.upsertSettings, {
     loja: { id: 'loja-a' },
@@ -152,8 +156,9 @@ async function run() {
     }
   });
   assert.strictEqual(explicitOpen.statusCode, 200);
-  const lojaAAfterExplicitOpen = await db.query('SELECT is_open FROM store_settings WHERE loja_id = $1', ['loja-a']);
+  const lojaAAfterExplicitOpen = await db.query('SELECT is_open, last_pdv_heartbeat_at FROM store_settings WHERE loja_id = $1', ['loja-a']);
   assert.strictEqual(lojaAAfterExplicitOpen.rows[0].is_open, 1);
+  assert.ok(lojaAAfterExplicitOpen.rows[0].last_pdv_heartbeat_at);
 
   const ownerGetA = await invoke(storeSettingsController.getSettings, {
     loja: { id: 'loja-a' }
