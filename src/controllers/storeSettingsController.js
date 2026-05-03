@@ -338,12 +338,13 @@ async function upsertSettings(req, res, next) {
         pix_qr_image,
         open_time,
         close_time,
-        is_open
+        is_open,
+        last_pdv_heartbeat_at
         ,delivery_enabled
         ,pickup_enabled
         ,dine_in_enabled
       )
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+      VALUES ($1,$2,$3,$4,$5,$6,CASE WHEN $7 THEN CURRENT_TIMESTAMP ELSE NULL END,$8,$9,$10)
       ON CONFLICT (loja_id)
       DO UPDATE SET
         mercado_pago_access_token = EXCLUDED.mercado_pago_access_token,
@@ -351,6 +352,10 @@ async function upsertSettings(req, res, next) {
         open_time    = EXCLUDED.open_time,
         close_time   = EXCLUDED.close_time,
         is_open      = EXCLUDED.is_open,
+        last_pdv_heartbeat_at = CASE
+          WHEN EXCLUDED.is_open THEN CURRENT_TIMESTAMP
+          ELSE store_settings.last_pdv_heartbeat_at
+        END,
         delivery_enabled = EXCLUDED.delivery_enabled,
         pickup_enabled = EXCLUDED.pickup_enabled,
         dine_in_enabled = EXCLUDED.dine_in_enabled,
@@ -363,6 +368,7 @@ async function upsertSettings(req, res, next) {
         pix_qr_image || null,
         open_time || null,
         close_time || null,
+        db.supportsForUpdate ? nextIsOpen : (nextIsOpen ? 1 : 0),
         db.supportsForUpdate ? nextIsOpen : (nextIsOpen ? 1 : 0),
         db.supportsForUpdate ? nextDeliveryEnabled : (nextDeliveryEnabled ? 1 : 0),
         db.supportsForUpdate ? nextPickupEnabled : (nextPickupEnabled ? 1 : 0),

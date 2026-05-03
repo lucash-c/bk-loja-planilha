@@ -153,7 +153,9 @@ function createApp() {
 
 if (require.main === module) {
   const app = createApp();
-  startInactiveStoreScheduler();
+  if (process.env.ENABLE_STORE_INACTIVITY_SCHEDULER === 'true') {
+    startInactiveStoreScheduler();
+  }
   const port = process.env.PORT || 4000;
   app.listen(port, () => {
     const activeRelease = getActiveRelease();

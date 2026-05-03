@@ -69,11 +69,23 @@ async function run() {
   const recentStore = await db.query('SELECT is_open FROM store_settings WHERE loja_id = $1', ['loja-recente']);
   assert.strictEqual(recentStore.rows[0].is_open, 1);
 
-  await db.query(`INSERT INTO store_settings (id, loja_id, is_open, last_pdv_heartbeat_at) VALUES ('2', 'loja-antiga', 1, datetime('now', '-10 minutes'))`);
+  await db.query(`INSERT INTO store_settings (id, loja_id, is_open, last_pdv_heartbeat_at) VALUES ('2', 'loja-antiga', 1, datetime('now', '-20 minutes'))`);
   const closeResult = await closeInactiveStores();
   assert.ok(closeResult.updated >= 1);
   const oldStore = await db.query('SELECT is_open FROM store_settings WHERE loja_id = $1', ['loja-antiga']);
   assert.strictEqual(oldStore.rows[0].is_open, 0);
+
+  await db.query(`INSERT INTO store_settings (id, loja_id, is_open, last_pdv_heartbeat_at, updated_at) VALUES ('4', 'loja-null-recente', 1, NULL, datetime('now'))`);
+  const nullRecentResult = await closeInactiveStores();
+  assert.strictEqual(nullRecentResult.updated, 0);
+  const nullRecentStore = await db.query('SELECT is_open FROM store_settings WHERE loja_id = $1', ['loja-null-recente']);
+  assert.strictEqual(nullRecentStore.rows[0].is_open, 1);
+
+  await db.query(`INSERT INTO store_settings (id, loja_id, is_open, last_pdv_heartbeat_at, updated_at) VALUES ('5', 'loja-null-antiga', 1, NULL, datetime('now', '-20 minutes'))`);
+  const nullOldResult = await closeInactiveStores();
+  assert.ok(nullOldResult.updated >= 1);
+  const nullOldStore = await db.query('SELECT is_open FROM store_settings WHERE loja_id = $1', ['loja-null-antiga']);
+  assert.strictEqual(nullOldStore.rows[0].is_open, 0);
 
   await db.query(`INSERT INTO store_settings (id, loja_id, is_open, last_pdv_heartbeat_at) VALUES ('3', 'loja-fechada', 0, datetime('now', '-20 minutes'))`);
   await closeInactiveStores();
