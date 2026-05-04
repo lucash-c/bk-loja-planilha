@@ -13,6 +13,7 @@ const ordersController = require('../src/controllers/ordersController');
 async function setupSchema() {
   await db.query('CREATE TABLE lojas (id TEXT PRIMARY KEY, public_key TEXT UNIQUE, name TEXT, is_active INTEGER)');
   await db.query('CREATE TABLE user_lojas (id TEXT PRIMARY KEY, user_id TEXT, loja_id TEXT, role TEXT, credits NUMERIC, updated_at TEXT)');
+  await db.query('CREATE TABLE store_settings (id TEXT PRIMARY KEY, loja_id TEXT, delivery_enabled INTEGER, pickup_enabled INTEGER, dine_in_enabled INTEGER, is_open INTEGER)');
   await db.query('CREATE TABLE store_payment_methods (id TEXT PRIMARY KEY, loja_id TEXT, code TEXT, label TEXT, is_active INTEGER)');
   await db.query('CREATE TABLE orders (id TEXT PRIMARY KEY, loja_id TEXT, external_id TEXT, customer_name TEXT, customer_whatsapp TEXT, order_type TEXT, delivery_address TEXT, delivery_distance_km NUMERIC, delivery_estimated_time_minutes INTEGER, delivery_fee NUMERIC, total NUMERIC, payment_method TEXT, origin TEXT, payment_status TEXT, status TEXT, notes TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP)');
   await db.query('CREATE TABLE order_items (id TEXT PRIMARY KEY, order_id TEXT, product_name TEXT, quantity INTEGER, unit_price NUMERIC, total_price NUMERIC, observation TEXT, options_json TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP)');
@@ -296,6 +297,8 @@ async function run() {
 
   // 5) createPdvTransactional mantém o mesmo contrato de items/options no write e no read
   const pdvCreate = await invoke(ordersController.createPdvTransactional, {
+    loja: { id: 'loja-1' },
+    tokenType: 'store',
     headers: { 'x-loja-key': 'loja-key' },
     body: {
       external_id: 'contract-pdv',
@@ -340,6 +343,8 @@ async function run() {
 
   // 6) PDV sem total informado também calcula com opções + delivery_fee quando entrega
   const pdvCalculatedCreate = await invoke(ordersController.createPdvTransactional, {
+    loja: { id: 'loja-1' },
+    tokenType: 'store',
     headers: { 'x-loja-key': 'loja-key' },
     body: {
       external_id: 'contract-pdv-calculated',
