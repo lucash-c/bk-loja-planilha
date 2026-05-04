@@ -4,7 +4,7 @@ const jwt = require('jsonwebtoken');
 const { validationResult } = require('express-validator');
 const { sendMail } = require('../utils/mailer');
 const { v4: uuidv4 } = require('uuid');
-const crypto = require('crypto');
+const { generateUniqueStorePublicKey } = require('../utils/storePublicKey');
 
 const JWT_SECRET = process.env.JWT_SECRET;
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '8h';
@@ -105,9 +105,10 @@ async function registerWithStore(req, res, next) {
     const userId = uuidv4();
     const lojaId = uuidv4();
     const userLojaId = uuidv4();
-    const publicKey = crypto.randomBytes(16).toString('hex');
+    let publicKey = null;
 
     await db.withTransaction(async (tx) => {
+      publicKey = await generateUniqueStorePublicKey(tx, loja.name);
       await tx.query(
         `
         INSERT INTO users (id, email, name, password_hash, role)

@@ -1,6 +1,6 @@
 const db = require('../config/db');
 const { v4: uuidv4 } = require('uuid');
-const crypto = require('crypto');
+const { generateUniqueStorePublicKey } = require('../utils/storePublicKey');
 
 /**
  * CREATE STORE
@@ -52,7 +52,7 @@ async function createLoja(req, res, next) {
     }
 
     const lojaId = uuidv4();
-    const publicKey = crypto.randomBytes(16).toString('hex');
+    const publicKey = await generateUniqueStorePublicKey(db, name);
 
     await db.query(
       `
@@ -475,7 +475,23 @@ async function regeneratePublicKey(req, res, next) {
       return res.status(403).json({ error: 'Apenas o owner pode gerar nova chave' });
     }
 
-    const newKey = crypto.randomBytes(16).toString('hex');
+    const lojaResult = await db.query(
+      `
+      SELECT name
+      FROM lojas
+      WHERE id = $1
+      LIMIT 1
+      `,
+      [lojaId]
+    );
+
+    if (!lojaResult.rows.length) {
+      return res.status(404).json({ error: 'Loja não encontrada' });
+    }
+
+    const newKey = await generateUniqueStorePublicKey(db, lojaResult.rows[0].name, {
+      excludeLojaId: lojaId
+    });
 
     await db.query(
       `
