@@ -52,7 +52,7 @@ async function setupSchema() {
 }
 
 async function seedBase() {
-  await db.query('INSERT INTO lojas (id, public_key, name, is_active) VALUES ($1,$2,$3,$4)', ['loja-1', 'public-loja', 'Loja Pública', 1]);
+  await db.query('INSERT INTO lojas (id, public_key, name, is_active) VALUES ($1,$2,$3,$4)', ['loja-1', 'lojapublica', 'Loja Pública', 1]);
   await db.query('INSERT INTO store_settings (loja_id, mercado_pago_access_token, is_open, delivery_enabled, pickup_enabled, dine_in_enabled) VALUES ($1,$2,$3,$4,$5,$6)', ['loja-1', 'APP_USR-token-privado', 0, 0, 1, 0]);
   await db.query('INSERT INTO categories (id, loja_id, name, slug, image_url, is_active) VALUES ($1,$2,$3,$4,$5,$6)', ['cat-active', 'loja-1', 'Categoria Ativa', 'cat-ativa', null, 1]);
   await db.query('INSERT INTO categories (id, loja_id, name, slug, image_url, is_active) VALUES ($1,$2,$3,$4,$5,$6)', ['cat-inactive', 'loja-1', 'Categoria Inativa', 'cat-inativa', null, 0]);
@@ -107,7 +107,7 @@ async function run() {
   delete process.env.PUBLIC_MENU_OPTIONS_INCLUDE_SOURCE;
 
   const response = await invoke(publicMenuController.getPublicMenu, {
-    params: { public_key: 'public-loja' },
+    params: { public_key: 'lojapublica' },
     query: {}
   });
 
@@ -160,7 +160,7 @@ async function run() {
 
   process.env.PUBLIC_MENU_OPTIONS_SOURCE = 'legacy';
   const legacyOnlyResponse = await invoke(publicMenuController.getPublicMenu, {
-    params: { public_key: 'public-loja' },
+    params: { public_key: 'lojapublica' },
     query: {}
   });
   const legacyOnlyHybridProduct = legacyOnlyResponse.body.products.find(product => product.id === 'p-hybrid');
@@ -168,7 +168,7 @@ async function run() {
 
   process.env.PUBLIC_MENU_OPTIONS_SOURCE = 'group';
   const groupOnlyResponse = await invoke(publicMenuController.getPublicMenu, {
-    params: { public_key: 'public-loja' },
+    params: { public_key: 'lojapublica' },
     query: {}
   });
   const groupOnlyHybridProduct = groupOnlyResponse.body.products.find(product => product.id === 'p-hybrid');

@@ -80,6 +80,7 @@ async function run() {
   assert.ok(response.body.user.id);
   assert.ok(response.body.loja.id);
   assert.ok(response.body.loja.public_key);
+  assert.strictEqual(response.body.loja.public_key, 'acmecentro');
 
   const tokenPayload = jwt.verify(response.body.token, process.env.JWT_SECRET);
   assert.strictEqual(tokenPayload.sub, response.body.user.id);
@@ -91,6 +92,7 @@ async function run() {
 
   const lojasRes = await db.query('SELECT * FROM lojas WHERE id = $1', [response.body.loja.id]);
   assert.strictEqual(lojasRes.rows.length, 1);
+  assert.strictEqual(lojasRes.rows[0].public_key, 'acmecentro');
 
   const userLojasRes = await db.query('SELECT * FROM user_lojas WHERE user_id = $1 AND loja_id = $2', [response.body.user.id, response.body.loja.id]);
   assert.strictEqual(userLojasRes.rows.length, 1);
