@@ -52,80 +52,106 @@ async function createLoja(req, res, next) {
     }
 
     const lojaId = uuidv4();
-    const publicKey = await generateUniqueStorePublicKey(db, name);
-
-    await db.query(
-      `
-      INSERT INTO lojas (
-        id,
-        public_key,
-        name,
-        whatsapp,
-        telefone,
-        responsavel_nome,
-        email,
-        cpf_cnpj,
-        pais,
-        estado,
-        cidade,
-        bairro,
-        rua,
-        numero,
-        cep,
-        facebook,
-        instagram,
-        tiktok,
-        logo,
-        is_active
+    const isPublicKeyUniqueConflict = (err) => (
+      err &&
+      (
+        err.code === '23505' ||
+        err.code === 'SQLITE_CONSTRAINT_UNIQUE' ||
+        /unique constraint failed:\s*lojas\.public_key/i.test(err.message || '') ||
+        /duplicate key value violates unique constraint/i.test(err.message || '')
       )
-      VALUES (
-        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
-        $11,$12,$13,$14,$15,$16,$17,$18,$19,TRUE
-      )
-      `,
-      [
-        lojaId,
-        publicKey,
-        name,
-        whatsapp,
-        telefone || null,
-        responsavel_nome,
-        email,
-        cpf_cnpj,
-        pais,
-        estado,
-        cidade,
-        bairro,
-        rua,
-        numero,
-        cep,
-        facebook || null,
-        instagram || null,
-        tiktok || null,
-        logo
-      ]
     );
 
-    await db.query(
-      `
-      INSERT INTO user_lojas (
-        id,
-        user_id,
-        loja_id,
-        role,
-        credits
-      )
-      VALUES ($1, $2, $3, 'owner', 0)
-      `,
-      [uuidv4(), userId, lojaId]
-    );
+    let createdPublicKey = null;
+    const maxAttempts = 5;
+
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      const publicKey = await generateUniqueStorePublicKey(db, name);
+
+      try {
+        await db.withTransaction(async tx => {
+          await tx.query(
+            `
+            INSERT INTO lojas (
+              id,
+              public_key,
+              name,
+              whatsapp,
+              telefone,
+              responsavel_nome,
+              email,
+              cpf_cnpj,
+              pais,
+              estado,
+              cidade,
+              bairro,
+              rua,
+              numero,
+              cep,
+              facebook,
+              instagram,
+              tiktok,
+              logo,
+              is_active
+            )
+            VALUES (
+              $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
+              $11,$12,$13,$14,$15,$16,$17,$18,$19,TRUE
+            )
+            `,
+            [
+              lojaId,
+              publicKey,
+              name,
+              whatsapp,
+              telefone || null,
+              responsavel_nome,
+              email,
+              cpf_cnpj,
+              pais,
+              estado,
+              cidade,
+              bairro,
+              rua,
+              numero,
+              cep,
+              facebook || null,
+              instagram || null,
+              tiktok || null,
+              logo
+            ]
+          );
+
+          await tx.query(
+            `
+            INSERT INTO user_lojas (
+              id,
+              user_id,
+              loja_id,
+              role,
+              credits
+            )
+            VALUES ($1, $2, $3, 'owner', 0)
+            `,
+            [uuidv4(), userId, lojaId]
+          );
+        });
+
+        createdPublicKey = publicKey;
+        break;
+      } catch (err) {
+        if (!isPublicKeyUniqueConflict(err) || attempt === maxAttempts - 1) {
+          throw err;
+        }
+      }
+    }
 
     res.status(201).json({
       ok: true,
       loja: {
         id: lojaId,
         name,
-        public_key: publicKey
+        public_key: createdPublicKey
       }
     });
   } catch (err) {
